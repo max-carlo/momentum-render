@@ -1,0 +1,5 @@
+streamlit
+yfinance
+selenium
+webdriver-manager
+playwright

@@ -1,3 +1,6 @@
 streamlit
-yfinance
 playwright
+webdriver-manager
+selenium
+yfinance
+pandas

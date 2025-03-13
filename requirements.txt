@@ -1,6 +1,6 @@
 streamlit
 playwright
-webdriver-manager
 selenium
 yfinance
 pandas
+webdriver-manager

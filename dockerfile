@@ -4,7 +4,7 @@ FROM python:3.10-slim
 # Setze das Arbeitsverzeichnis
 WORKDIR /app
 
-# Kopiere alle Anwendungsdateien in den Container
+# Kopiere die App-Dateien in den Container
 COPY . /app
 
 # Installiere Systemabhängigkeiten für Playwright & Selenium
@@ -18,11 +18,12 @@ RUN apt-get update && apt-get install -y \
 # Installiere Python-Abhängigkeiten
 RUN pip install --no-cache-dir --upgrade pip && pip install -r requirements.txt
 
-# Installiere Playwright und seine Browser + Abhängigkeiten
-RUN pip install playwright && playwright install --with-deps
+# Installiere Playwright OHNE Root-Rechte & benötigte Browser direkt
+RUN PLAYWRIGHT_BROWSERS_PATH=/app/.cache/playwright \
+    && playwright install chromium --with-deps
 
-# Setze die Umgebungsvariablen für Playwright
-ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
+# Setze die Umgebungsvariablen für Playwright (damit er nicht in /root installiert)
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/playwright
 
 # Stelle sicher, dass die Startdatei ausführbar ist
 RUN chmod +x start.sh

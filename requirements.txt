@@ -1,8 +1,5 @@
 streamlit
-selenium
 yfinance
 playwright
 pandas
 numpy
-chromedriver-autoinstaller
-webdriver-manager

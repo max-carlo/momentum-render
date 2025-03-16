@@ -21,8 +21,9 @@ RUN pip install --no-cache-dir --upgrade pip && pip install -r requirements.txt
 # Setze Playwright so, dass es keine Root-Rechte benötigt
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/playwright
 
-# Installiere Playwright-Browser ohne Root-Rechte
-RUN npx playwright install --with-deps chromium
+# Installiere Playwright & Browser ohne Root-Rechte
+RUN pip install playwright
+RUN playwright install --with-deps chromium
 
 # Stelle sicher, dass die Startdatei ausführbar ist
 RUN chmod +x start.sh

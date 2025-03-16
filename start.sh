@@ -6,6 +6,8 @@ pip install -r requirements.txt
 # Setze Playwright-Umgebungsvariablen
 export PLAYWRIGHT_BROWSERS_PATH=/app/.cache/playwright
 
-# Starte die Anwendung
-streamlit run app.py --server.port=10000 --server.address=0.0.0.0
-python momentum.py
+# Installiere die benötigten Browser für Playwright
+playwright install --with-deps
+
+# Starte Streamlit mit `momentum.py`
+streamlit run momentum.py --server.port=${PORT:-10000} --server.address=0.0.0.0

@@ -1,4 +1,4 @@
-# Verwende ein schlankes Python-Image als Basis
+# Verwende ein leichtes Python-Image als Basis
 FROM python:3.10-slim
 
 # Setze das Arbeitsverzeichnis
@@ -18,14 +18,14 @@ RUN apt-get update && apt-get install -y \
 # Installiere Python-Abhängigkeiten
 RUN pip install --no-cache-dir --upgrade pip && pip install -r requirements.txt
 
-# Setze Playwright so, dass es keine Root-Rechte benötigt
+# Installiere Playwright und die benötigten Browser
+RUN PLAYWRIGHT_BROWSERS_PATH=/app/.cache/playwright \
+    && playwright install chromium --with-deps
+
+# Setze Umgebungsvariablen für Playwright
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/playwright
 
-# Installiere Playwright & Browser ohne Root-Rechte
-RUN pip install playwright
-RUN playwright install --with-deps chromium
-
-# Stelle sicher, dass die Startdatei ausführbar ist
+# Stelle sicher, dass das Start-Skript ausführbar ist
 RUN chmod +x start.sh
 
 # Definiere das Startkommando

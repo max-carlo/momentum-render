@@ -9,6 +9,9 @@ def get_earnings_data(ticker):
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
+    # Setze den Chrome-Binärpfad
+    options.binary_location = "/usr/bin/google-chrome"
+
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)
 

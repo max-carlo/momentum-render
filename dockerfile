@@ -1,10 +1,10 @@
-# Verwende ein leichtes Python-Image als Basis
+# Verwende ein minimales Python-Image als Basis
 FROM python:3.10-slim
 
 # Setze das Arbeitsverzeichnis
 WORKDIR /app
 
-# Kopiere die App-Dateien in den Container
+# Kopiere die Dateien in den Container
 COPY . /app
 
 # Installiere Systemabhängigkeiten für Playwright
@@ -16,17 +16,17 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Installiere Python-Abhängigkeiten
-RUN pip install --no-cache-dir --upgrade pip && pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Installiere Playwright und die benötigten Browser
+# Installiere Playwright-Browser direkt im Image
 RUN PLAYWRIGHT_BROWSERS_PATH=/app/.cache/playwright \
     && playwright install chromium --with-deps
 
-# Setze Umgebungsvariablen für Playwright
+# Setze Playwright-Umgebungsvariable
 ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/playwright
 
-# Stelle sicher, dass das Start-Skript ausführbar ist
+# Stelle sicher, dass `start.sh` ausführbar ist
 RUN chmod +x start.sh
 
-# Definiere das Startkommando
+# Starte die Anwendung
 CMD ["./start.sh"]

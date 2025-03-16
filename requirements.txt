@@ -1,5 +1,8 @@
+selenium
+webdriver-manager
 streamlit
-yfinance
-playwright
 pandas
 numpy
+yfinance
+beautifulsoup4
+requests

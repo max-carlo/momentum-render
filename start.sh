@@ -1,8 +1,6 @@
 #!/bin/bash
 pip install -r requirements.txt
-# Installiere Playwright und benötigte Dependencies
-playwright install --with-deps
-# Starte die Streamlit-App
-streamlit run app.py --server.port=10000 --server.address=0.0.0.0
-# Führe das Scraping-Skript aus
+export PLAYWRIGHT_BROWSERS_PATH=/app/.cache/playwright
+npx playwright install --with-deps chromium
+streamlit run momentum.py --server.port=10000 --server.address=0.0.0.0
 python momentum.py

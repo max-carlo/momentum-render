@@ -7,7 +7,7 @@ WORKDIR /app
 # Kopiere die App-Dateien in den Container
 COPY . /app
 
-# Installiere Systemabhängigkeiten für Playwright (kein Selenium nötig!)
+# Installiere Systemabhängigkeiten für Playwright
 RUN apt-get update && apt-get install -y \
     curl unzip xvfb libnss3 libxss1 libasound2 libxrandr2 \
     libatk1.0-0 libatk-bridge2.0-0 libcups2 libxcomposite1 \
@@ -15,17 +15,17 @@ RUN apt-get update && apt-get install -y \
     libgtk-3-0 libatspi2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Setze die Umgebungsvariable, damit Playwright-Browser an den richtigen Ort installiert werden
-ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/playwright
-
 # Installiere Python-Abhängigkeiten
 RUN pip install --no-cache-dir --upgrade pip && pip install -r requirements.txt
 
-# Installiere Playwright mit Abhängigkeiten
-RUN playwright install --with-deps
+# Setze Playwright so, dass es keine Root-Rechte benötigt
+ENV PLAYWRIGHT_BROWSERS_PATH=/app/.cache/playwright
+
+# Installiere Playwright-Browser ohne Root-Rechte
+RUN npx playwright install --with-deps chromium
 
 # Stelle sicher, dass die Startdatei ausführbar ist
 RUN chmod +x start.sh
 
 # Definiere das Startkommando
-CMD ["bash", "start.sh"]
+CMD ["./start.sh"]

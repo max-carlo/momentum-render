@@ -1,11 +1,8 @@
 #!/bin/bash
 
-# Stelle sicher, dass alle Abhängigkeiten installiert sind
-pip install -r requirements.txt
+# Start Xvfb for headless Chrome
+Xvfb :99 -screen 0 1024x768x16 &
+export DISPLAY=:99
 
-# Setze die Umgebungsvariable für Chrome
-export CHROME_BIN=/usr/bin/google-chrome
-export PATH=$PATH:/usr/bin/
-
-# Starte das Python-Skript
-python momentum.py
+# Start the application
+streamlit run momentum.py --server.port=${PORT:-8501} --server.address=0.0.0.0

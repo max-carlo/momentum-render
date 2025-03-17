@@ -1,5 +1,6 @@
-selenium
 streamlit
+selenium
+webdriver-manager
 yfinance
 pandas
 numpy

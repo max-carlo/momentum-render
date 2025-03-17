@@ -43,7 +43,7 @@ COPY . /app
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Expose port
-EXPOSE 8501
+EXPOSE 10000
 
 # Start script
 CMD ["/bin/bash", "start.sh"]

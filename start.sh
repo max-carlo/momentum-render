@@ -1,19 +1,19 @@
 #!/bin/bash
 
-echo "Starting virtual display for Chrome..."
-if ! pgrep Xvfb > /dev/null; then
-    Xvfb :99 -screen 0 1920x1080x16 & 
-    export DISPLAY=:99
+# Starte virtuellen Display-Server für Chrome (falls benötigt)
+if ! pgrep -x "Xvfb" > /dev/null
+then
+    echo "Starte Xvfb..."
+    Xvfb :99 -screen 0 1024x768x24 &
+    sleep 2
 else
-    echo "Xvfb is already running, skipping start."
+    echo "Xvfb läuft bereits."
 fi
+export DISPLAY=:99
 
-echo "Ensuring all Python dependencies are installed..."
-pip install --no-cache-dir -r requirements.txt
+# Installiere Python-Abhängigkeiten
+pip install -r requirements.txt --no-cache-dir
 
-echo "Setting up Chrome environment variables..."
-export CHROME_BIN=/usr/bin/google-chrome
-export CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
-
-echo "Starting Streamlit..."
-streamlit run momentum.py --server.port=${PORT:-10000} --server.address=0.0.0.0
+# Setze explizit den Port auf die Render PORT Variable
+echo "Starte Streamlit auf Port $PORT ..."
+streamlit run momentum.py --server.port=${PORT} --server.address=0.0.0.0

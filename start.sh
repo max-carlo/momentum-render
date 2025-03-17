@@ -16,4 +16,4 @@ export CHROME_BIN=/usr/bin/google-chrome
 export CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
 
 echo "Starting Streamlit..."
-streamlit run momentum.py --server.port=${PORT:-8501} --server.address=0.0.0.0
+streamlit run momentum.py --server.port=${PORT:-10000} --server.address=0.0.0.0

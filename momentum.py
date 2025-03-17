@@ -1,23 +1,22 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from webdriver_manager.chrome import ChromeDriverManager
+import time
 
-def setup_driver():
-    options = Options()
-    options.add_argument("--headless")  # Starte Chrome im Headless-Modus
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-dev-shm-usage")
-    options.binary_location = "/usr/bin/google-chrome"
-    service = Service("/usr/bin/chromedriver")
-    driver = webdriver.Chrome(service=service, options=options)
-    return driver
+# Setze Chrome-Optionen
+chrome_options = Options()
+chrome_options.add_argument("--headless")  # Headless-Modus für Server
+chrome_options.add_argument("--no-sandbox")
+chrome_options.add_argument("--disable-dev-shm-usage")
 
-def get_earnings_data():
-    driver = setup_driver()
-    driver.get("https://finance.yahoo.com")
-    print("Seite geladen:", driver.title)
-    driver.quit()
+# Starte den Webdriver
+service = Service("/usr/bin/chromedriver")
+driver = webdriver.Chrome(service=service, options=chrome_options)
 
-if __name__ == "__main__":
-    get_earnings_data()
+# Beispiel-Navigation
+driver.get("https://www.google.com")
+time.sleep(2)  # Warte kurz
+print(driver.title)
+
+# Schließe den Browser
+driver.quit()

@@ -7,5 +7,5 @@ pip install -r requirements.txt
 export CHROME_BIN=/usr/bin/google-chrome
 export PATH=$PATH:/usr/bin/
 
-# Starte Selenium und das Python-Skript
+# Starte das Python-Skript
 python momentum.py

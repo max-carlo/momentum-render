@@ -1,22 +1,19 @@
 #!/bin/bash
 
 echo "Starting virtual display for Chrome..."
-Xvfb :99 -screen 0 1920x1080x24 &
-export DISPLAY=:99
+if ! pgrep Xvfb > /dev/null; then
+    Xvfb :99 -screen 0 1920x1080x16 & 
+    export DISPLAY=:99
+else
+    echo "Xvfb is already running, skipping start."
+fi
 
 echo "Ensuring all Python dependencies are installed..."
 pip install --no-cache-dir -r requirements.txt
 
-echo "Disabling Streamlit onboarding..."
-export STREAMLIT_DISABLE_ONBOARDING=1
+echo "Setting up Chrome environment variables..."
+export CHROME_BIN=/usr/bin/google-chrome
+export CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
 
-# **Wichtiger Fix für den X11-Fehler**
-echo "Fixing /tmp/.X11-unix permissions..."
-if [ -d /tmp/.X11-unix ]; then
-    rm -rf /tmp/.X11-unix
-fi
-mkdir -p /tmp/.X11-unix
-chmod 1777 /tmp/.X11-unix || true
-
-echo "Starting Streamlit on Render..."
-streamlit run momentum.py --server.port=${PORT:-10000} --server.address=0.0.0.0
+echo "Starting Streamlit..."
+streamlit run momentum.py --server.port=${PORT:-8501} --server.address=0.0.0.0

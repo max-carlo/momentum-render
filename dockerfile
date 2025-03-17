@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     libasound2 \
     fonts-liberation \
     xdg-utils \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Chrome

@@ -1,6 +1,8 @@
 streamlit
 selenium
 webdriver-manager
-yfinance
 pandas
 numpy
+requests
+beautifulsoup4
+yfinance

@@ -2,6 +2,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
+import os
 
 def get_earnings_data(ticker):
     options = Options()
@@ -9,8 +10,10 @@ def get_earnings_data(ticker):
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
 
-    # Setze den Chrome-Binärpfad
-    options.binary_location = "/usr/bin/google-chrome"
+    # Setze den Chrome-Binärpfad aus der Umgebungsvariable
+    chrome_path = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
+    print(f"Verwende Chrome unter: {chrome_path}")
+    options.binary_location = chrome_path
 
     service = Service(ChromeDriverManager().install())
     driver = webdriver.Chrome(service=service, options=options)

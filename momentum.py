@@ -58,4 +58,7 @@ st.title("Earnings Whispers Scraper")
 ticker = st.text_input("Enter stock ticker:", "AAPL")
 if st.button("Fetch Data"):
     data = get_earnings_data(ticker)
-    st.text(data)  # Gibt die Daten als formatierten Text aus
+  
+st.text_area("Earnings Summary Raw Data", earnings_summary)
+
+    

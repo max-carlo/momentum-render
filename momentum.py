@@ -1,20 +1,28 @@
 import streamlit as st
 from playwright.sync_api import sync_playwright
+import time
 
-# Funktion zum Scrapen von Earnings Whispers
 def get_earnings_data(ticker):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        
-        # URL von Earnings Whispers für das eingegebene Ticker-Symbol
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)"  # Fake User-Agent
+        )
+        page = context.new_page()
+
+        # Earnings Whispers URL für den Ticker
         url = f"https://www.earningswhispers.com/stocks/{ticker}"
-        page.goto(url, timeout=60000)  # Timeout auf 60 Sekunden setzen, um Ladeprobleme zu vermeiden
+        page.goto(url, wait_until="networkidle", timeout=60000)  # Warte auf komplettes Laden
 
-        # Warte auf das Laden der relevanten Elemente
-        page.wait_for_selector("div.earningswhispers-score-container", timeout=30000)
+        # Warte explizit auf das Earnings-Element
+        try:
+            page.wait_for_selector("div.earningswhispers-score-container", timeout=60000)
+        except:
+            page.screenshot(path="debug_screenshot.png")  # Speichere Screenshot für Debugging
+            browser.close()
+            return {"Error": "Earnings-Daten konnten nicht geladen werden (evtl. Blockierung?)"}
 
-        # Extrahiere die wichtigsten Earnings-Daten
+        # Extrahiere Earnings-Daten
         try:
             whisper_number = page.inner_text("div#whisper")
             estimate = page.inner_text("div#estimate")

@@ -1,35 +1,35 @@
+# Nutzt ein schlankes Python-Image
 FROM python:3.11-slim
 
+# Installiere Systempakete
 RUN apt-get update && apt-get install -y \
-    wget gnupg curl xvfb unzip \
-    fonts-liberation libasound2 libatk-bridge2.0-0 libatk1.0-0 libcups2 \
-    libdbus-1-3 libdrm2 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 \
-    libnspr4 libnss3 libx11-xcb1 libxcomposite1 libxkbcommon0 libxdamage1 \
-    libxfixes3 libxrandr2 libxshmfence1 libxss1 libxtst6
-
-# Chrome installieren
-RUN wget -qO- https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor > /usr/share/keyrings/google-chrome-keyring.gpg \
-    && echo "deb [signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-    && apt-get update && apt-get install -y google-chrome-stable \
+    wget \
+    curl \
+    unzip \
+    libnss3 \
+    libxss1 \
+    libasound2 \
+    fonts-liberation \
+    xdg-utils \
+    libgbm-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# ChromeDriver herunterladen und installieren
-RUN CHROME_VERSION=$(google-chrome --version | grep -oP '\d+\.\d+\.\d+' | head -n 1) && \
-    CHROME_MAJOR_VERSION=$(echo $CHROME_VERSION | cut -d '.' -f 1) && \
-    DRIVER_VERSION=$(curl -sS "https://chromedriver.storage.googleapis.com/LATEST_RELEASE_${CHROME_MAJOR_VERSION}") && \
-    wget -q "https://chromedriver.storage.googleapis.com/${DRIVER_VERSION}/chromedriver_linux64.zip" && \
-    unzip chromedriver_linux64.zip && \
-    mv chromedriver /usr/local/bin/ && \
-    chmod +x /usr/local/bin/chromedriver && \
-    rm chromedriver_linux64.zip
+# Installiere Playwright und Chromium
+RUN pip install --no-cache-dir playwright && playwright install --with-deps chromium
 
-ENV DISPLAY=:99
-ENV PATH="/usr/local/bin:${PATH}"
-
+# Setze das Arbeitsverzeichnis
 WORKDIR /app
 COPY . /app
 
-RUN pip install --upgrade pip
-RUN pip install -r requirements.txt --no-cache-dir
+# Installiere Python-Abhängigkeiten
+RUN pip install --no-cache-dir -r requirements.txt
 
-ENTRYPOINT ["./start.sh"]
+# Setze Playwright-Umgebungsvariablen
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome
+
+# Exponiere den richtigen Port
+EXPOSE 10000
+
+# Starte die Streamlit-App
+CMD ["streamlit", "run", "momentum.py", "--server.port=10000", "--server.address=0.0.0.0"]

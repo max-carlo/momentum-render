@@ -1,45 +1,42 @@
 import streamlit as st
 from playwright.sync_api import sync_playwright
-import yfinance as yf
 
-# Funktion für Playwright-Scraping
+# Funktion zum Scrapen von Earnings Whispers
 def get_earnings_data(ticker):
-    url = f"https://finance.yahoo.com/quote/{ticker}/earnings"
-
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
-        )
-        page = context.new_page()
+        page = browser.new_page()
         
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)  # Erhöhte Timeout-Zeit
-            data = page.content()  # Holt den HTML-Quellcode
-        except Exception as e:
-            data = f"Error: {e}"
-        
-        browser.close()
-    
-    return data[:1000]  # Beschränkung für Ausgabe
+        # URL von Earnings Whispers für das eingegebene Ticker-Symbol
+        url = f"https://www.earningswhispers.com/stocks/{ticker}"
+        page.goto(url, timeout=60000)  # Timeout auf 60 Sekunden setzen, um Ladeprobleme zu vermeiden
 
-# Funktion für Short Ratio von yfinance
-def get_short_ratio(ticker):
-    try:
-        stock = yf.Ticker(ticker)
-        short_ratio = stock.info.get("shortRatio", "N/A")
-        return short_ratio
-    except Exception as e:
-        return f"Error: {e}"
+        # Warte auf das Laden der relevanten Elemente
+        page.wait_for_selector("div.earningswhispers-score-container", timeout=30000)
+
+        # Extrahiere die wichtigsten Earnings-Daten
+        try:
+            whisper_number = page.inner_text("div#whisper")
+            estimate = page.inner_text("div#estimate")
+            actual = page.inner_text("div#actual")
+            earnings_date = page.inner_text("div#earningsdate")
+
+            earnings_data = {
+                "Whisper Number": whisper_number,
+                "Analyst Estimate": estimate,
+                "Actual Earnings": actual,
+                "Earnings Date": earnings_date
+            }
+        except Exception as e:
+            earnings_data = {"Error": f"Fehler beim Scrapen: {e}"}
+
+        browser.close()
+        return earnings_data
 
 # Streamlit UI
 st.title("Earnings Whispers Scraper")
-
 ticker = st.text_input("Enter stock ticker:", "AAPL")
 
 if st.button("Fetch Data"):
-    earnings_data = get_earnings_data(ticker)
-    short_ratio = get_short_ratio(ticker)
-
-    st.text_area("Earnings Data", earnings_data)
-    st.write(f"Short Ratio: {short_ratio}")
+    data = get_earnings_data(ticker)
+    st.write(data)

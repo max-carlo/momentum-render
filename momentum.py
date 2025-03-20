@@ -17,24 +17,23 @@ def get_earnings_data(ticker):
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=90000)
 
-            # Datum des Earnings-Reports extrahieren
+            # Warte explizit auf die Earnings-Elemente (bis zu 90 Sekunden)
+            page.wait_for_selector(".eps-datetime", timeout=90000)
+            page.wait_for_selector(".earningswhispers-growth", timeout=90000)
+            page.wait_for_selector(".earningswhispers-revenue-growth", timeout=90000)
+            page.wait_for_selector(".earningswhispers-surprise", timeout=90000)
+
+            # Datum extrahieren
             raw_date = page.inner_text(".eps-datetime").strip()
-
-            # Datum ins gewünschte Format umwandeln (DD/MM/YY)
             match = re.search(r"([A-Za-z]+), ([A-Za-z]+) (\d+), (\d+)", raw_date)
-            if match:
-                date_obj = datetime.strptime(f"{match.group(3)} {match.group(2)} {match.group(4)}", "%d %B %Y")
-                formatted_date = date_obj.strftime("%d/%m/%y")
-            else:
-                formatted_date = "N/A"
+            formatted_date = (
+                datetime.strptime(f"{match.group(3)} {match.group(2)} {match.group(4)}", "%d %B %Y").strftime("%d/%m/%y")
+                if match else "N/A"
+            )
 
-            # Earnings Wachstum
+            # Earnings-Daten extrahieren
             earnings_growth = page.inner_text(".earningswhispers-growth").strip().replace(",", "")
-
-            # Umsatz Wachstum
             revenue_growth = page.inner_text(".earningswhispers-revenue-growth").strip().replace(",", "")
-
-            # Earnings Surprise
             earnings_surprise = page.inner_text(".earningswhispers-surprise").strip().replace(",", "")
 
         except Exception as e:

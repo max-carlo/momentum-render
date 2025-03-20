@@ -1,117 +1,103 @@
 import streamlit as st
 from playwright.sync_api import sync_playwright
+import yfinance as yf
 import re
 
-# Setzt das Design mit einem dunklen Hintergrund
+def get_earnings_data(ticker):
+    url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
+        )
+        page = context.new_page()
+
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=90000)
+            page.wait_for_selector("#epssummary", timeout=90000)
+
+            raw_date = page.inner_text("#epsdate").strip()
+            earnings_text = page.inner_text("#epssummary").strip()
+
+            # **Korrekte Extraktion aus der Summary**
+            earnings_growth_match = re.search(r"Earnings Growth.*?([-+]?\d{1,3}(?:,\d{1,3})*(?:\.\d+)?%)", earnings_text)
+            revenue_growth_match = re.search(r"Revenue Growth.*?([-+]?\d{1,3}(?:,\d{1,3})*(?:\.\d+)?%)", earnings_text)
+            earnings_surprise_match = re.search(r"Earnings Surprise.*?([-+]?\d{1,3}(?:,\d{1,3})*(?:\.\d+)?%)", earnings_text)
+
+            earnings_growth = earnings_growth_match.group(1) if earnings_growth_match else "N/A"
+            revenue_growth = revenue_growth_match.group(1) if revenue_growth_match else "N/A"
+            earnings_surprise = earnings_surprise_match.group(1) if earnings_surprise_match else "N/A"
+
+            # **Short Ratio über yfinance abrufen**
+            try:
+                stock = yf.Ticker(ticker)
+                short_ratio = stock.info.get("shortRatio", "N/A")
+                short_ratio = round(float(short_ratio), 2) if short_ratio != "N/A" else "N/A"
+            except:
+                short_ratio = "N/A"
+
+            # **Datumsformatierung**
+            date_match = re.search(r"([A-Za-z]+) (\d+), (\d+)", raw_date)
+            if date_match:
+                month, day, year = date_match.groups()
+                months = {
+                    "January": "01", "February": "02", "March": "03", "April": "04",
+                    "May": "05", "June": "06", "July": "07", "August": "08",
+                    "September": "09", "October": "10", "November": "11", "December": "12"
+                }
+                formatted_date = f"{day}/{months[month]}/{year[2:]}"  # Kürze Jahr auf 2 Stellen
+            else:
+                formatted_date = "N/A"
+
+            # **Finale Formatierung**
+            formatted_output = f"{formatted_date}\nEG: {earnings_growth} / RG: {revenue_growth}\nES: {earnings_surprise}\nSR: {short_ratio}"
+
+        except Exception as e:
+            formatted_output = f"N/A\nEG: Error / RG: Error\nES: Error\nSR: {short_ratio}"
+
+        browser.close()
+
+    return formatted_output
+
+
+# **Dark Mode Styling für die gesamte Seite**
 st.markdown(
     """
     <style>
     body {
-        background-color: #000000;
-        color: #ffffff;
+        background-color: #121212;
+        color: #E0E0E0;
     }
-    .stTextInput, .stTextArea, .stButton>button {
-        background-color: #222222;
-        color: #ffffff;
-        border-radius: 8px;
-        font-size: 16px;
-    }
-    .stTextInput>div>div>input {
-        color: #ffffff;
-    }
-    .stButton>button {
-        background-color: #ff007f;
-        color: white;
-        border: none;
-        padding: 10px 20px;
-        font-size: 16px;
-    }
-    .stButton>button:hover {
-        background-color: #ff4500;
+    .stApp {
+        background-color: #121212;
+        color: #E0E0E0;
     }
     h1 {
-        color: #ff007f;
-        text-align: center;
-        font-size: 36px;
+        color: #ffffff;
     }
-    .stTextArea textarea {
-        background-color: #111111;
-        color: #33ffcc;
-        font-size: 16px;
-        border-radius: 8px;
+    .stTextInput>div>div>input {
+        background-color: #1E1E1E;
+        color: #E0E0E0;
+        border-radius: 5px;
+    }
+    .stButton>button {
+        background-color: #ff9800;
+        color: white;
+        border-radius: 5px;
+        font-weight: bold;
+    }
+    .stTextArea>div>textarea {
+        background-color: #1E1E1E;
+        color: #FFD700;
     }
     </style>
     """,
     unsafe_allow_html=True
 )
 
-def get_earnings_data(ticker):
-    url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
-
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)  
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
-        )
-        page = context.new_page()
-
-        earnings_summary = "N/A"  
-
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=90000)  
-            page.wait_for_selector("#epssummary", timeout=90000)  
-            earnings_summary = page.inner_text("#epssummary")  
-        except Exception as e:
-            earnings_summary = f"Error: {e}"
-
-        browser.close()
-
-    return earnings_summary
-
-def format_earnings_data(raw_data):
-    try:
-        # Datum extrahieren
-        date_match = re.search(r"ended (\w+ \d+, \d+)", raw_data)
-        date = date_match.group(1) if date_match else "N/A"
-
-        # Werte extrahieren
-        earnings_match = re.search(r"earnings of \$([\d.]+)", raw_data)
-        revenue_match = re.search(r"revenue of \$([\d.]+)", raw_data)
-        growth_match = re.search(r"revenue grew ([\d.]+)%", raw_data)
-        miss_match = re.search(r"missed expectations by ([\d.]+)%", raw_data)
-
-        earnings = earnings_match.group(1) if earnings_match else "N/A"
-        revenue = revenue_match.group(1) if revenue_match else "N/A"
-        growth = growth_match.group(1) if growth_match else "N/A"
-        earnings_surprise = miss_match.group(1) if miss_match else "N/A"
-
-        # Datumsformat anpassen (Monat -> Tag/Monat/Jahr)
-        from datetime import datetime
-        try:
-            formatted_date = datetime.strptime(date, "%B %d, %Y").strftime("%d/%m/%y")
-        except ValueError:
-            formatted_date = "N/A"
-
-        # Formatierte Ausgabe
-        formatted_output = f"""
-        🎆 **{formatted_date}** 🎆
-        **EG:** {earnings}% / **RG:** {growth}%
-        **ES:** {earnings_surprise}%
-        **SR:** N/A
-        """
-
-    except Exception as e:
-        formatted_output = f"Error: {e}"
-
-    return formatted_output
-
-# Titel der App
-st.markdown("<h1>Hanabi Scraper 🎇</h1>", unsafe_allow_html=True)
-
-# Eingabefeld ohne Platzhalter
-ticker = st.text_input("🔍 Enter stock ticker:", "")
-
-if st.button("🚀 Fetch Data"):
-    raw_data = get_earnings_data(ticker)
-    formatted_data = format_earnings_data(raw_data)
-    st.text_area("📊 Earnings Data", formatted_data, height=150)
+st.title("Hanabi Scraper")
+ticker = st.text_input("Enter stock ticker:")
+if st.button("Fetch Data"):
+    data = get_earnings_data(ticker)
+    st.text_area("Earnings Data", data)

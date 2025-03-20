@@ -1,45 +1,45 @@
-import yfinance as yf
+import streamlit as st
 from playwright.sync_api import sync_playwright
+import yfinance as yf
 
+# Funktion für Playwright-Scraping
 def get_earnings_data(ticker):
-    """Scrapt die Earnings-Daten von Earnings Whispers mit Playwright."""
-    url = f"https://www.earningswhispers.com/stocks/{ticker.lower()}"
+    url = f"https://finance.yahoo.com/quote/{ticker}/earnings"
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36"
+        )
+        page = context.new_page()
         
         try:
-            page.goto(url, timeout=60000)  # 60 Sekunden Timeout
-            page.wait_for_selector("table.earnings-table", timeout=30000)
-
-            # Beispiel: Extrahieren der ersten Tabellenzeile
-            earnings_data = page.inner_text("table.earnings-table")
-
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)  # Erhöhte Timeout-Zeit
+            data = page.content()  # Holt den HTML-Quellcode
         except Exception as e:
-            earnings_data = f"Error fetching earnings: {e}"
-
-        finally:
-            browser.close()
+            data = f"Error: {e}"
+        
+        browser.close()
     
-    return earnings_data
+    return data[:1000]  # Beschränkung für Ausgabe
 
-
+# Funktion für Short Ratio von yfinance
 def get_short_ratio(ticker):
-    """Holt die Short Ratio von der Yahoo Finance API mit yfinance."""
     try:
         stock = yf.Ticker(ticker)
-        short_ratio = stock.info.get("shortRatio", "N/A")  # Fallback, falls nicht vorhanden
+        short_ratio = stock.info.get("shortRatio", "N/A")
         return short_ratio
     except Exception as e:
-        return f"Error fetching short ratio: {e}"
+        return f"Error: {e}"
 
+# Streamlit UI
+st.title("Earnings Whispers Scraper")
 
-if __name__ == "__main__":
-    ticker = "AAPL"  # Testticker
+ticker = st.text_input("Enter stock ticker:", "AAPL")
 
-    earnings = get_earnings_data(ticker)
+if st.button("Fetch Data"):
+    earnings_data = get_earnings_data(ticker)
     short_ratio = get_short_ratio(ticker)
 
-    print(f"Earnings Data for {ticker}:\n{earnings}\n")
-    print(f"Short Ratio for {ticker}: {short_ratio}")
+    st.text_area("Earnings Data", earnings_data)
+    st.write(f"Short Ratio: {short_ratio}")

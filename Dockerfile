@@ -1,32 +1,32 @@
-# Nutzt ein schlankes Python-Image
+# Nutze ein schlankes Python-Image
 FROM python:3.11-slim
 
 # Installiere Systempakete
 RUN apt-get update && apt-get install -y \
     wget \
-    curl \
     unzip \
+    curl \
+    gnupg \
     libnss3 \
     libxss1 \
+    libappindicator3-1 \
     libasound2 \
     fonts-liberation \
     xdg-utils \
     libgbm-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Installiere Playwright und Chromium
-RUN pip install --no-cache-dir playwright && playwright install --with-deps chromium
-
 # Setze das Arbeitsverzeichnis
 WORKDIR /app
+
+# Kopiere alle Dateien ins Container-Verzeichnis
 COPY . /app
 
 # Installiere Python-Abhängigkeiten
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Setze Playwright-Umgebungsvariablen
-ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/root/.cache/ms-playwright/chromium-*/chrome-linux/chrome
+# Installiere Playwright und seine Browser
+RUN playwright install
 
 # Exponiere den richtigen Port
 EXPOSE 10000

@@ -10,24 +10,24 @@ def get_earnings_data(ticker):
         )
         page = context.new_page()
 
-        # Earnings Whispers URL für den Ticker
-        url = f"https://www.earningswhispers.com/stocks/{ticker}"
+        # Neue URL für den Ticker
+        url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
         page.goto(url, wait_until="networkidle", timeout=60000)  # Warte auf komplettes Laden
 
         # Warte explizit auf das Earnings-Element
         try:
-            page.wait_for_selector("div.earningswhispers-score-container", timeout=60000)
+            page.wait_for_selector("div.earningswhispers-container", timeout=60000)
         except:
-            page.screenshot(path="debug_screenshot.png")  # Speichere Screenshot für Debugging
+            page.screenshot(path="debug_screenshot.png")  # Screenshot für Debugging
             browser.close()
             return {"Error": "Earnings-Daten konnten nicht geladen werden (evtl. Blockierung?)"}
 
         # Extrahiere Earnings-Daten
         try:
-            whisper_number = page.inner_text("div#whisper")
-            estimate = page.inner_text("div#estimate")
-            actual = page.inner_text("div#actual")
-            earnings_date = page.inner_text("div#earningsdate")
+            whisper_number = page.inner_text("span#whisper")
+            estimate = page.inner_text("span#estimate")
+            actual = page.inner_text("span#actual")
+            earnings_date = page.inner_text("span#earningsdate")
 
             earnings_data = {
                 "Whisper Number": whisper_number,

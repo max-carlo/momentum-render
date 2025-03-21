@@ -104,21 +104,20 @@ def parse_date_to_ddmmyy(date_str):
 # Streamlit App UI
 st.title("Hanabi Scraper")
 
-ticker = st.text_input("Enter stock ticker:", "", on_change=lambda: st.session_state.fetch_data and st.session_state.fetch_data())
+# Text Input (Enter sendet automatisch die Anfrage)
+ticker = st.text_input("Enter stock ticker:", "", key="ticker_input")
 
-if st.button("Fetch Data") or "fetch_data" in st.session_state:
-    if not ticker:
-        st.warning("Bitte einen gültigen Ticker eingeben.")
-    else:
-        date, eg, rg, es, rs = get_earnings_data(ticker)
-        sr = get_short_ratio(ticker)
-        history = get_earnings_history(ticker)
+# Automatische Suche beim Drücken von Enter
+if ticker:
+    date, eg, rg, es, rs = get_earnings_data(ticker)
+    sr = get_short_ratio(ticker)
+    history = get_earnings_history(ticker)
 
-        # Ergebnisse anzeigen
-        st.text_area(
-            "Earnings Data",
-            f"{date}\nEG: {eg} / RG: {rg}\nES: {es} / RS: {rs}\nSR: {sr}",
-            height=120
-        )
+    # Ergebnisse anzeigen
+    st.text_area(
+        "Earnings Data",
+        f"{date}\nEG: {eg} / RG: {rg}\nES: {es} / RS: {rs}\nSR: {sr}",
+        height=120
+    )
 
-        st.text_area("Earnings History", history, height=180)
+    st.text_area("Earnings History", history, height=180)

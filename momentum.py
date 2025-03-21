@@ -45,7 +45,7 @@ def get_earnings_data(ticker):
     except:
         sr = "N/A"
 
-    return f"{formatted_date}\nEG: {eg}% / RG: {rg}%\nES: {es}%\nSR: {sr}"
+    return f"{formatted_date}\nEG: {eg} / RG: {rg}\nES: {es}\nSR: {sr}"
 
 # 🧼 Schlichtes Interface
 st.title("Hanabi Scraper")

@@ -4,6 +4,10 @@ import yfinance as yf
 import re
 from datetime import datetime
 
+# --- Initialisiere Session State ---
+if "fetch_data" not in st.session_state:
+    st.session_state.fetch_data = False
+
 # --- Funktion: Earnings Whispers Scraper ---
 def get_earnings_data(ticker):
     url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
@@ -104,13 +108,21 @@ st.set_page_config(page_title="Hanabi Scraper", layout="wide")
 st.markdown("<style>body { background-color: black; color: white; }</style>", unsafe_allow_html=True)
 
 st.title("Hanabi Scraper")
-ticker = st.text_input("Enter stock ticker:", "", on_change=lambda: st.session_state.fetch_data and st.session_state.fetch_data())
-if st.button("Fetch Data") or st.session_state.get("fetch_data", False):
-    st.session_state.fetch_data = False
+ticker = st.text_input("Enter stock ticker:", "")
 
-    ew_data = get_earnings_data(ticker)
-    short_ratio = get_short_ratio(ticker)
-    earnings_history = get_earnings_history(ticker)
+# --- Eingabe mit Enter-Taste auslösen ---
+def submit():
+    st.session_state.fetch_data = True
+
+st.text_input("Enter stock ticker:", "", key="ticker", on_change=submit)
+
+# --- Button zum Abrufen der Daten ---
+if st.button("Fetch Data") or st.session_state.fetch_data:
+    st.session_state.fetch_data = False  # Reset nach Abruf
+
+    ew_data = get_earnings_data(st.session_state.ticker)
+    short_ratio = get_short_ratio(st.session_state.ticker)
+    earnings_history = get_earnings_history(st.session_state.ticker)
 
     st.text_area("Earnings Whispers Data", ew_data, height=100)
     st.text_area("Short Ratio", f"SR: {short_ratio}", height=50)

@@ -126,7 +126,7 @@ def get_earnings_data(ticker):
 
 # 📌 Streamlit Interface
 st.set_page_config(layout="wide")
-st.title("📈 Hanabi Market Scraper")
+st.title("📈 Katalysatorenanalyse")
 
 with st.form("main_form"):
     ticker = st.text_input("Ticker eingeben (z. B. AAPL)", "")

@@ -120,7 +120,7 @@ def get_earnings_data(ticker):
     except:
         sr = "N/A"
 
-    return f"{formatted_date}\nEG: {eg}% / RG: {rg}%\nES: {es}% / RS: {rs}%\nSR: {sr}"
+    return f"{formatted_date}\nEG: {eg} / RG: {rg}%\nES: {es} / RS: {rs}\nSR: {sr}"
 
 # 📌 Streamlit Interface
 st.set_page_config(layout="wide")

@@ -55,6 +55,7 @@ def scrape_zacks_earnings(ticker):
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_selector("table#earnings_announcements_earnings_table", timeout=10000)  # NEU: Warten auf Tabelle
             html = page.content()
         except Exception as e:
             browser.close()
@@ -77,6 +78,7 @@ def scrape_zacks_earnings(ticker):
 
     df = pd.DataFrame(data, columns=["Date", "Period", "Estimate", "Reported", "Surprise", "% Surprise", "Time"])
     return df
+
 
 # 📌 EarningsWhispers Current Earnings
 def get_earnings_data(ticker):

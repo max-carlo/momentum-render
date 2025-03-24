@@ -6,7 +6,7 @@ import yfinance as yf
 import re
 from datetime import datetime
 
-# 📌 Finviz News Scraper
+# Finviz News
 def scrape_finviz_news(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}&p=d"
     with sync_playwright() as p:
@@ -40,9 +40,9 @@ def scrape_finviz_news(ticker):
             src = source.text.strip("()")
             news_items.append((time, title, url, src))
 
-    return news_items[:15]  # Top 15 News
+    return news_items[:15]
 
-# 📌 Zacks Earnings Calendar Scraper
+# Zacks Earnings Calendar
 def scrape_zacks_earnings(ticker):
     url = f"https://www.zacks.com/stock/research/{ticker}/earnings-calendar"
     with sync_playwright() as p:
@@ -55,20 +55,19 @@ def scrape_zacks_earnings(ticker):
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_selector("table#earnings_announcements_earnings_table", timeout=10000)  # NEU: Warten auf Tabelle
             html = page.content()
         except Exception as e:
             browser.close()
-            return pd.DataFrame([["Fehler beim Laden der Zacks-Seite", "", "", "", "", "", ""]],
-                                columns=["Date", "Period", "Estimate", "Reported", "Surprise", "% Surprise", "Time"])
+            return pd.DataFrame([["Fehler beim Laden der Zacks-Seite", "", "", "", ""]],
+                                columns=["Date", "Period", "Surprise", "% Surprise", "YoY"])
         browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
     rows = soup.select("table#earnings_announcements_earnings_table tr.odd, table#earnings_announcements_earnings_table tr.even")
 
     if not rows:
-        return pd.DataFrame([["Keine Datenzeilen gefunden", "", "", "", "", "", ""]],
-                            columns=["Date", "Period", "Estimate", "Reported", "Surprise", "% Surprise", "Time"])
+        return pd.DataFrame([["Keine Datenzeilen gefunden", "", "", "", ""]],
+                            columns=["Date", "Period", "Surprise", "% Surprise", "YoY"])
 
     data = []
     for row in rows[:8]:
@@ -77,10 +76,25 @@ def scrape_zacks_earnings(ticker):
             data.append([c.text.strip() for c in cells])
 
     df = pd.DataFrame(data, columns=["Date", "Period", "Estimate", "Reported", "Surprise", "% Surprise", "Time"])
-    return df
 
+    # Vorjahres-Wachstum berechnen
+    df["YoY"] = ""
+    for i in range(len(df)):
+        curr_period = df.loc[i, "Period"]
+        try:
+            curr_val = float(df.loc[i, "Reported"].replace("$", ""))
+            for j in range(i + 1, len(df)):
+                if df.loc[j, "Period"] == curr_period:
+                    prev_val = float(df.loc[j, "Reported"].replace("$", ""))
+                    growth = round((curr_val - prev_val) / abs(prev_val) * 100, 2)
+                    df.loc[i, "YoY"] = f"{growth}%"
+                    break
+        except:
+            df.loc[i, "YoY"] = "N/A"
 
-# 📌 EarningsWhispers Current Earnings
+    return df[["Date", "Period", "Surprise", "% Surprise", "YoY"]]
+
+# EarningsWhispers
 def get_earnings_data(ticker):
     url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
     with sync_playwright() as p:
@@ -112,21 +126,22 @@ def get_earnings_data(ticker):
         return f"-{clean(text)}" if "-" in text else clean(text)
 
     eg = clean(earnings_growth)
-    rg = clean(revenue_growth)
+    rg = clean(revenue_growth).replace("%%", "%")
     es = signed(earnings_surprise)
     rs = signed(revenue_surprise)
 
     try:
-        sr = yf.Ticker(ticker).info.get("shortRatio", "N/A")
-        sr = str(round(sr, 2)) if isinstance(sr, (int, float)) else "N/A"
+        info = yf.Ticker(ticker).info
+        sr = info.get("shortRatio", "N/A")
+        sr = str(round(sr, 2)) if isinstance(sr, (float, int)) else "N/A"
     except:
         sr = "N/A"
 
-    return f"{formatted_date}\nEG: {eg} / RG: {rg}%\nES: {es} / RS: {rs}\nSR: {sr}"
+    return f"{formatted_date}\nEG: {eg}% / RG: {rg}\nES: {es} / RS: {rs}\nSR: {sr}"
 
-# 📌 Streamlit Interface
+# Streamlit UI
 st.set_page_config(layout="wide")
-st.title("📈 Katalysatorenanalyse")
+st.title("📈 Hanabi Market Scraper")
 
 with st.form("main_form"):
     ticker = st.text_input("Ticker eingeben (z. B. AAPL)", "")
@@ -140,8 +155,14 @@ if submitted and ticker:
         st.subheader(f"📰 Finviz News zu {ticker}")
         news = scrape_finviz_news(ticker)
         if isinstance(news, list):
-            for time, title, url, source in news:
-                st.markdown(f"- **{time}** – [{title}]({url}) ({source})")
+            for i, (time, title, url, source) in enumerate(news):
+                style = "background-color: #000000; color: white;" if i % 2 == 0 else "background-color: #f0f0f0; color: black;"
+                st.markdown(
+                    f"<div style='padding:6px; font-size:13px; line-height:1.4; {style}'>"
+                    f"<strong>{time}</strong> – <a href='{url}' target='_blank'>{title}</a> ({source})"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
         else:
             st.error(news)
 

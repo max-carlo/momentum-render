@@ -6,7 +6,7 @@ import yfinance as yf
 import re
 from datetime import datetime
 
-# Finviz News
+# 📌 Finviz News
 def scrape_finviz_news(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}&p=d"
     with sync_playwright() as p:
@@ -42,7 +42,7 @@ def scrape_finviz_news(ticker):
 
     return news_items[:15]
 
-# Zacks Earnings Calendar
+# 📌 Zacks Earnings
 def scrape_zacks_earnings(ticker):
     url = f"https://www.zacks.com/stock/research/{ticker}/earnings-calendar"
     with sync_playwright() as p:
@@ -63,38 +63,44 @@ def scrape_zacks_earnings(ticker):
         browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
-    rows = soup.select("table#earnings_announcements_earnings_table tr.odd, table#earnings_announcements_earnings_table tr.even")
+    rows = soup.select("table#earnings_announcements_earnings_table tr.odd, tr.even")
 
     if not rows:
         return pd.DataFrame([["Keine Datenzeilen gefunden", "", "", "", ""]],
                             columns=["Date", "Period", "Surprise", "% Surprise", "YoY"])
 
     data = []
-    for row in rows[:8]:
+    for row in rows:
         cells = row.find_all(["th", "td"])
         if len(cells) == 7:
-            data.append([c.text.strip() for c in cells])
+            date = cells[0].text.strip()
+            period = cells[1].text.strip()
+            reported = cells[3].text.strip().replace("$", "")
+            surprise = cells[4].text.strip()
+            surprise_pct = cells[5].text.strip()
+            data.append([date, period, reported, surprise, surprise_pct])
 
-    df = pd.DataFrame(data, columns=["Date", "Period", "Estimate", "Reported", "Surprise", "% Surprise", "Time"])
+    df = pd.DataFrame(data, columns=["Date", "Period", "Reported", "Surprise", "% Surprise"])
 
-    # Vorjahres-Wachstum berechnen
+    # Berechne YoY-Wachstum auf Basis der Perioden
     df["YoY"] = ""
-    for i in range(len(df)):
-        curr_period = df.loc[i, "Period"]
-        try:
-            curr_val = float(df.loc[i, "Reported"].replace("$", ""))
-            for j in range(i + 1, len(df)):
-                if df.loc[j, "Period"] == curr_period:
-                    prev_val = float(df.loc[j, "Reported"].replace("$", ""))
-                    growth = round((curr_val - prev_val) / abs(prev_val) * 100, 2)
-                    df.loc[i, "YoY"] = f"{growth}%"
-                    break
-        except:
-            df.loc[i, "YoY"] = "N/A"
+    period_map = {row["Period"]: float(row["Reported"]) for _, row in df.iterrows() if row["Reported"].replace(".", "", 1).isdigit()}
+    for idx, row in df.iterrows():
+        period = row["Period"]
+        if re.match(r"\d{1,2}/\d{4}", period):
+            month, year = period.split("/")
+            last_year = str(int(year) - 1)
+            compare_period = f"{month}/{last_year}"
+            if compare_period in period_map:
+                current = float(row["Reported"])
+                previous = period_map[compare_period]
+                if previous != 0:
+                    growth = round((current - previous) / abs(previous) * 100, 2)
+                    df.at[idx, "YoY"] = f"{growth}%"
 
     return df[["Date", "Period", "Surprise", "% Surprise", "YoY"]]
 
-# EarningsWhispers
+# 📌 EarningsWhispers
 def get_earnings_data(ticker):
     url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
     with sync_playwright() as p:
@@ -137,9 +143,9 @@ def get_earnings_data(ticker):
     except:
         sr = "N/A"
 
-    return f"{formatted_date}\nEG: {eg}% / RG: {rg}\nES: {es} / RS: {rs}\nSR: {sr}"
+    return f"{formatted_date}\nEG: {eg}% / RG: {rg}%\nES: {es} / RS: {rs}\nSR: {sr}"
 
-# Streamlit UI
+# 📌 Streamlit UI
 st.set_page_config(layout="wide")
 st.title("📈 Hanabi Market Scraper")
 
@@ -156,9 +162,9 @@ if submitted and ticker:
         news = scrape_finviz_news(ticker)
         if isinstance(news, list):
             for i, (time, title, url, source) in enumerate(news):
-                style = "background-color: #000000; color: white;" if i % 2 == 0 else "background-color: #f0f0f0; color: black;"
+                bg = "#f0f0f0" if i % 2 else "white"
                 st.markdown(
-                    f"<div style='padding:6px; font-size:13px; line-height:1.4; {style}'>"
+                    f"<div style='padding:6px; font-size:13px; background-color:{bg}; line-height:1.4;'>"
                     f"<strong>{time}</strong> – <a href='{url}' target='_blank'>{title}</a> ({source})"
                     f"</div>",
                     unsafe_allow_html=True

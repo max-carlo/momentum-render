@@ -82,7 +82,7 @@ def scrape_zacks_earnings(ticker):
 
     df = pd.DataFrame(data, columns=["Date", "Period", "Reported", "Surprise", "% Surprise"])
 
-    # Berechne YoY-Wachstum auf Basis der Perioden
+    # YoY-Berechnung wie im funktionierenden Beispiel
     df["YoY"] = ""
     period_map = {row["Period"]: float(row["Reported"]) for _, row in df.iterrows() if row["Reported"].replace(".", "", 1).isdigit()}
     for idx, row in df.iterrows():
@@ -96,7 +96,7 @@ def scrape_zacks_earnings(ticker):
                 previous = period_map[compare_period]
                 if previous != 0:
                     growth = round((current - previous) / abs(previous) * 100, 2)
-                    df.at[idx, "YoY"] = f"{growth}%"
+                    df.at[idx, "YoY"] = growth
 
     return df[["Date", "Period", "Surprise", "% Surprise", "YoY"]]
 
@@ -183,11 +183,16 @@ if submitted and ticker:
     df = scrape_zacks_earnings(ticker)
     st.dataframe(df, use_container_width=True)
 
-    # 📈 Earnings Change %
-    if "YoY" in df.columns:
-        chart_data = df[["Period", "YoY"]].dropna()
-        chart_data = chart_data[chart_data["YoY"].str.endswith("%")]
-        if not chart_data.empty:
-            chart_data["YoY"] = chart_data["YoY"].str.replace("%", "").astype(float)
-            chart_data = chart_data[::-1]
-            st.line_chart(chart_data.set_index("Period"))
+    # Diagramm anzeigen, wenn Werte vorhanden
+    if "YoY" in df.columns and df["YoY"].apply(lambda x: isinstance(x, (float, int))).any():
+        df_chart = df[df["YoY"] != ""].copy()
+        df_chart["YoY"] = pd.to_numeric(df_chart["YoY"], errors="coerce")
+        df_chart = df_chart.dropna(subset=["YoY"])
+        df_chart = df_chart.sort_values("Period")
+        fig, ax = plt.subplots()
+        ax.plot(df_chart["Period"], df_chart["YoY"], marker="o")
+        ax.set_title("YoY Wachstum (Zacks)")
+        ax.set_xlabel("Period")
+        ax.set_ylabel("YoY (%)")
+        plt.xticks(rotation=45)
+        st.pyplot(fig)

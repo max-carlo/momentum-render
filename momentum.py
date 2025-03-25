@@ -5,7 +5,7 @@ import pandas as pd
 import yfinance as yf
 import re
 from datetime import datetime
-import matplotlib.pyplot as plt  # 🔧 FIX: import hinzugefügt
+import matplotlib.pyplot as plt  # <-- Jetzt importiert!
 
 # 📌 Finviz News
 def scrape_finviz_news(ticker):
@@ -83,7 +83,7 @@ def scrape_zacks_earnings(ticker):
 
     df = pd.DataFrame(data, columns=["Date", "Period", "Reported", "Surprise", "% Surprise"])
 
-    # Berechne YoY-Wachstum auf Basis der Perioden
+    # Change % (YoY) berechnen
     df["Change %"] = ""
     period_map = {row["Period"]: float(row["Reported"]) for _, row in df.iterrows() if row["Reported"].replace(".", "", 1).isdigit()}
     for idx, row in df.iterrows():
@@ -182,16 +182,20 @@ if submitted and ticker:
 
     st.subheader(f"📊 Zacks Earnings History für {ticker}")
     df = scrape_zacks_earnings(ticker)
-    st.dataframe(df, use_container_width=True)
 
-    # 📉 Diagramm anzeigen (kleiner + nur gültige Werte)
-    if "Change %" in df.columns and df["Change %"].apply(lambda x: isinstance(x, (float, int))).any():
-        df_chart = df.dropna(subset=["Change %"]).copy()
-        df_chart = df_chart.sort_values("Period")
-        fig, ax = plt.subplots(figsize=(6, 2.5))
-        ax.plot(df_chart["Period"], df_chart["Change %"], marker="o", linewidth=2)
-        ax.set_title("Change % zum Vorjahr")
-        ax.set_xlabel("Period")
-        ax.set_ylabel("Change %")
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
+    col3, col4 = st.columns([3, 2])
+    with col3:
+        st.dataframe(df, use_container_width=True)
+    with col4:
+        if "Change %" in df.columns and df["Change %"].apply(lambda x: isinstance(x, (float, int))).any():
+            df_chart = df[df["Change %"] != ""].copy()
+            df_chart["Change %"] = pd.to_numeric(df_chart["Change %"], errors="coerce")
+            df_chart = df_chart.dropna(subset=["Change %"])
+            df_chart = df_chart.sort_values("Period")
+            fig, ax = plt.subplots(figsize=(4, 3))  # kleineres Diagramm
+            ax.plot(df_chart["Period"], df_chart["Change %"], marker="o")
+            ax.set_title("Change %")
+            ax.set_xlabel("Period")
+            ax.set_ylabel("Reported YoY Change")
+            plt.xticks(rotation=45)
+            st.pyplot(fig)

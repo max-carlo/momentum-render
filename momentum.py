@@ -6,9 +6,8 @@ import yfinance as yf
 import re
 from datetime import datetime
 import matplotlib.pyplot as plt
-import io
 
-# Finviz News
+# 📌 Finviz News
 def scrape_finviz_news(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}&p=d"
     with sync_playwright() as p:
@@ -44,7 +43,7 @@ def scrape_finviz_news(ticker):
 
     return news_items[:15]
 
-# Zacks Earnings Calendar
+# 📌 Zacks Earnings
 def scrape_zacks_earnings(ticker):
     url = f"https://www.zacks.com/stock/research/{ticker}/earnings-calendar"
     with sync_playwright() as p:
@@ -65,7 +64,7 @@ def scrape_zacks_earnings(ticker):
         browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
-    rows = soup.select("table#earnings_announcements_earnings_table tr.odd, table#earnings_announcements_earnings_table tr.even")
+    rows = soup.select("table#earnings_announcements_earnings_table tr.odd, tr.even")
 
     if not rows:
         return pd.DataFrame([["Keine Datenzeilen gefunden", "", "", "", ""]],
@@ -75,29 +74,34 @@ def scrape_zacks_earnings(ticker):
     for row in rows:
         cells = row.find_all(["th", "td"])
         if len(cells) == 7:
-            data.append([c.text.strip() for c in cells])
+            date = cells[0].text.strip()
+            period = cells[1].text.strip()
+            reported = cells[3].text.strip().replace("$", "")
+            surprise = cells[4].text.strip()
+            surprise_pct = cells[5].text.strip()
+            data.append([date, period, reported, surprise, surprise_pct])
 
-    df = pd.DataFrame(data, columns=["Date", "Period", "Estimate", "Reported", "Surprise", "% Surprise", "Time"])
+    df = pd.DataFrame(data, columns=["Date", "Period", "Reported", "Surprise", "% Surprise"])
 
+    # Berechne YoY-Wachstum auf Basis der Perioden
     df["YoY"] = ""
-    period_to_reported = dict(zip(df["Period"], df["Reported"]))
-
-    for i in range(len(df)):
-        curr_period = df.loc[i, "Period"]
-        try:
-            year, quarter = curr_period.split("/")
-            prev_period = f"{quarter}/{int(year) - 1}"
-            if prev_period in period_to_reported:
-                curr_val = float(df.loc[i, "Reported"].replace("$", ""))
-                prev_val = float(period_to_reported[prev_period].replace("$", ""))
-                growth = round((curr_val - prev_val) / abs(prev_val) * 100, 2)
-                df.loc[i, "YoY"] = f"{growth}%"
-        except:
-            continue
+    period_map = {row["Period"]: float(row["Reported"]) for _, row in df.iterrows() if row["Reported"].replace(".", "", 1).isdigit()}
+    for idx, row in df.iterrows():
+        period = row["Period"]
+        if re.match(r"\d{1,2}/\d{4}", period):
+            month, year = period.split("/")
+            last_year = str(int(year) - 1)
+            compare_period = f"{month}/{last_year}"
+            if compare_period in period_map:
+                current = float(row["Reported"])
+                previous = period_map[compare_period]
+                if previous != 0:
+                    growth = round((current - previous) / abs(previous) * 100, 2)
+                    df.at[idx, "YoY"] = f"{growth}%"
 
     return df[["Date", "Period", "Surprise", "% Surprise", "YoY"]]
 
-# EarningsWhispers
+# 📌 EarningsWhispers
 def get_earnings_data(ticker):
     url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
     with sync_playwright() as p:
@@ -128,8 +132,8 @@ def get_earnings_data(ticker):
     def signed(text):
         return f"-{clean(text)}" if "-" in text else clean(text)
 
-    eg = clean(earnings_growth)
-    rg = clean(revenue_growth)
+    eg = clean(earnings_growth).rstrip("%")
+    rg = clean(revenue_growth).rstrip("%")
     es = signed(earnings_surprise)
     rs = signed(revenue_surprise)
 
@@ -142,7 +146,7 @@ def get_earnings_data(ticker):
 
     return f"{formatted_date}\nEG: {eg}% / RG: {rg}%\nES: {es} / RS: {rs}\nSR: {sr}"
 
-# Streamlit UI
+# 📌 Streamlit UI
 st.set_page_config(layout="wide")
 st.title("📈 Hanabi Market Scraper")
 
@@ -158,35 +162,33 @@ if submitted and ticker:
         st.subheader(f"📰 Finviz News zu {ticker}")
         news = scrape_finviz_news(ticker)
         if isinstance(news, list):
-            st.markdown("<div style='height: 180px; overflow-y: auto;'>", unsafe_allow_html=True)
+            news_html = "<div style='max-height: 225px; overflow-y: auto;'>"
             for i, (time, title, url, source) in enumerate(news):
-                bg = "#f0f0f0" if i % 2 == 0 else "#ffffff"
-                st.markdown(
-                    f"<div style='padding:6px; font-size:13px; background-color:{bg};'>"
+                bg = "#f0f0f0" if i % 2 else "white"
+                news_html += (
+                    f"<div style='padding:6px; font-size:13px; background-color:{bg}; line-height:1.4;'>"
                     f"<strong>{time}</strong> – <a href='{url}' target='_blank'>{title}</a> ({source})"
-                    f"</div>",
-                    unsafe_allow_html=True
+                    f"</div>"
                 )
-            st.markdown("</div>", unsafe_allow_html=True)
+            news_html += "</div>"
+            st.markdown(news_html, unsafe_allow_html=True)
         else:
             st.error(news)
 
     with col2:
         st.subheader(f"📅 Aktuelle Earnings zu {ticker} (EarningsWhispers)")
         result = get_earnings_data(ticker)
-        st.text_area("Earnings Summary", result, height=180)
+        st.text_area("Earnings Summary", result, height=225)
 
     st.subheader(f"📊 Zacks Earnings History für {ticker}")
     df = scrape_zacks_earnings(ticker)
     st.dataframe(df, use_container_width=True)
 
+    # Diagramm aus YoY-Werten
     if "YoY" in df.columns:
-        chart_df = df[df["YoY"] != ""].copy()
-        chart_df["YoY_float"] = chart_df["YoY"].str.replace("%", "").astype(float)
-        fig, ax = plt.subplots(figsize=(8, 3))
-        ax.plot(chart_df["Period"], chart_df["YoY_float"], marker="o")
-        ax.set_title("YoY-Wachstum (Zacks)")
-        ax.set_ylabel("YoY (%)")
-        ax.set_xlabel("Period")
-        ax.grid(True)
-        st.pyplot(fig)
+        chart_data = df[["Period", "YoY"]].dropna()
+        chart_data = chart_data[chart_data["YoY"].str.endswith("%")]
+        if not chart_data.empty:
+            chart_data["YoY"] = chart_data["YoY"].str.replace("%", "").astype(float)
+            chart_data = chart_data[::-1]  # Jüngste Quartale nach rechts
+            st.line_chart(chart_data.set_index("Period"))

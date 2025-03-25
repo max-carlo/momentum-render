@@ -5,6 +5,7 @@ import pandas as pd
 import yfinance as yf
 import re
 from datetime import datetime
+import matplotlib.pyplot as plt  # 🔧 FIX: import hinzugefügt
 
 # 📌 Finviz News
 def scrape_finviz_news(ticker):
@@ -59,7 +60,7 @@ def scrape_zacks_earnings(ticker):
         except Exception as e:
             browser.close()
             return pd.DataFrame([["Fehler beim Laden der Zacks-Seite", "", "", "", ""]],
-                                columns=["Date", "Period", "Surprise", "% Surprise", "YoY"])
+                                columns=["Date", "Period", "Surprise", "% Surprise", "Change %"])
         browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
@@ -67,7 +68,7 @@ def scrape_zacks_earnings(ticker):
 
     if not rows:
         return pd.DataFrame([["Keine Datenzeilen gefunden", "", "", "", ""]],
-                            columns=["Date", "Period", "Surprise", "% Surprise", "YoY"])
+                            columns=["Date", "Period", "Surprise", "% Surprise", "Change %"])
 
     data = []
     for row in rows:
@@ -82,8 +83,8 @@ def scrape_zacks_earnings(ticker):
 
     df = pd.DataFrame(data, columns=["Date", "Period", "Reported", "Surprise", "% Surprise"])
 
-    # YoY-Berechnung wie im funktionierenden Beispiel
-    df["YoY"] = ""
+    # Berechne YoY-Wachstum auf Basis der Perioden
+    df["Change %"] = ""
     period_map = {row["Period"]: float(row["Reported"]) for _, row in df.iterrows() if row["Reported"].replace(".", "", 1).isdigit()}
     for idx, row in df.iterrows():
         period = row["Period"]
@@ -96,9 +97,9 @@ def scrape_zacks_earnings(ticker):
                 previous = period_map[compare_period]
                 if previous != 0:
                     growth = round((current - previous) / abs(previous) * 100, 2)
-                    df.at[idx, "YoY"] = growth
+                    df.at[idx, "Change %"] = growth
 
-    return df[["Date", "Period", "Surprise", "% Surprise", "YoY"]]
+    return df[["Date", "Period", "Change %", "Surprise", "% Surprise"]]
 
 # 📌 EarningsWhispers
 def get_earnings_data(ticker):
@@ -183,16 +184,14 @@ if submitted and ticker:
     df = scrape_zacks_earnings(ticker)
     st.dataframe(df, use_container_width=True)
 
-    # Diagramm anzeigen, wenn Werte vorhanden
-    if "YoY" in df.columns and df["YoY"].apply(lambda x: isinstance(x, (float, int))).any():
-        df_chart = df[df["YoY"] != ""].copy()
-        df_chart["YoY"] = pd.to_numeric(df_chart["YoY"], errors="coerce")
-        df_chart = df_chart.dropna(subset=["YoY"])
+    # 📉 Diagramm anzeigen (kleiner + nur gültige Werte)
+    if "Change %" in df.columns and df["Change %"].apply(lambda x: isinstance(x, (float, int))).any():
+        df_chart = df.dropna(subset=["Change %"]).copy()
         df_chart = df_chart.sort_values("Period")
-        fig, ax = plt.subplots()
-        ax.plot(df_chart["Period"], df_chart["YoY"], marker="o")
-        ax.set_title("YoY Wachstum (Zacks)")
+        fig, ax = plt.subplots(figsize=(6, 2.5))
+        ax.plot(df_chart["Period"], df_chart["Change %"], marker="o", linewidth=2)
+        ax.set_title("Change % zum Vorjahr")
         ax.set_xlabel("Period")
-        ax.set_ylabel("YoY (%)")
+        ax.set_ylabel("Change %")
         plt.xticks(rotation=45)
         st.pyplot(fig)

@@ -83,7 +83,7 @@ def scrape_zacks_earnings(ticker):
 
     df = pd.DataFrame(data, columns=["Date", "Period", "Reported", "Surprise", "% Surprise"])
 
-    # Berechne YoY-Wachstum auf Basis der Perioden
+    # YoY-Berechnung wie im funktionierenden Beispiel
     df["YoY"] = ""
     period_map = {row["Period"]: float(row["Reported"]) for _, row in df.iterrows() if row["Reported"].replace(".", "", 1).isdigit()}
     for idx, row in df.iterrows():
@@ -97,7 +97,7 @@ def scrape_zacks_earnings(ticker):
                 previous = period_map[compare_period]
                 if previous != 0:
                     growth = round((current - previous) / abs(previous) * 100, 2)
-                    df.at[idx, "YoY"] = f"{growth}%"
+                    df.at[idx, "YoY"] = growth
 
     return df[["Date", "Period", "Surprise", "% Surprise", "YoY"]]
 
@@ -132,8 +132,8 @@ def get_earnings_data(ticker):
     def signed(text):
         return f"-{clean(text)}" if "-" in text else clean(text)
 
-    eg = clean(earnings_growth).rstrip("%")
-    rg = clean(revenue_growth).rstrip("%")
+    eg = clean(earnings_growth).replace("%%", "%")
+    rg = clean(revenue_growth).replace("%%", "%")
     es = signed(earnings_surprise)
     rs = signed(revenue_surprise)
 
@@ -161,34 +161,40 @@ if submitted and ticker:
     with col1:
         st.subheader(f"📰 Finviz News zu {ticker}")
         news = scrape_finviz_news(ticker)
+        finviz_height = 230
         if isinstance(news, list):
-            news_html = "<div style='max-height: 225px; overflow-y: auto;'>"
+            st.markdown(f"<div style='height:{finviz_height}px; overflow-y: scroll;'>", unsafe_allow_html=True)
             for i, (time, title, url, source) in enumerate(news):
                 bg = "#f0f0f0" if i % 2 else "white"
-                news_html += (
+                st.markdown(
                     f"<div style='padding:6px; font-size:13px; background-color:{bg}; line-height:1.4;'>"
                     f"<strong>{time}</strong> – <a href='{url}' target='_blank'>{title}</a> ({source})"
-                    f"</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
                 )
-            news_html += "</div>"
-            st.markdown(news_html, unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.error(news)
 
     with col2:
         st.subheader(f"📅 Aktuelle Earnings zu {ticker} (EarningsWhispers)")
         result = get_earnings_data(ticker)
-        st.text_area("Earnings Summary", result, height=225)
+        st.text_area("Earnings Summary", result, height=finviz_height)
 
     st.subheader(f"📊 Zacks Earnings History für {ticker}")
     df = scrape_zacks_earnings(ticker)
     st.dataframe(df, use_container_width=True)
 
-    # Diagramm aus YoY-Werten
-    if "YoY" in df.columns:
-        chart_data = df[["Period", "YoY"]].dropna()
-        chart_data = chart_data[chart_data["YoY"].str.endswith("%")]
-        if not chart_data.empty:
-            chart_data["YoY"] = chart_data["YoY"].str.replace("%", "").astype(float)
-            chart_data = chart_data[::-1]  # Jüngste Quartale nach rechts
-            st.line_chart(chart_data.set_index("Period"))
+    # Diagramm anzeigen, wenn Werte vorhanden
+    if "YoY" in df.columns and df["YoY"].apply(lambda x: isinstance(x, (float, int))).any():
+        df_chart = df[df["YoY"] != ""].copy()
+        df_chart["YoY"] = pd.to_numeric(df_chart["YoY"], errors="coerce")
+        df_chart = df_chart.dropna(subset=["YoY"])
+        df_chart = df_chart.sort_values("Period")
+        fig, ax = plt.subplots()
+        ax.plot(df_chart["Period"], df_chart["YoY"], marker="o")
+        ax.set_title("YoY Wachstum (Zacks)")
+        ax.set_xlabel("Period")
+        ax.set_ylabel("YoY (%)")
+        plt.xticks(rotation=45)
+        st.pyplot(fig)

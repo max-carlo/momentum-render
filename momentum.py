@@ -105,53 +105,62 @@ def scrape_zacks_earnings(ticker):
             html = page.content()
         except Exception as e:
             browser.close()
-            return pd.DataFrame([['Fehler beim Laden', '', '', '', '', '']], columns=["Datum", "Periode", "Earnings", "Earnings YoY", "Revenue YoY", "Earnings Surprise"])
+            return pd.DataFrame([["Fehler beim Laden der Zacks-Seite", "", "", "", "", ""]],
+                                columns=["Datum", "Periode", "Earnings", "Earnings Surprise", "Earnings YoY", "Revenue YoY"])
         browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
     rows = soup.select("table#earnings_announcements_earnings_table tr.odd, tr.even")
+
+    if not rows:
+        return pd.DataFrame([["Keine Datenzeilen gefunden", "", "", "", "", ""]],
+                            columns=["Datum", "Periode", "Earnings", "Earnings Surprise", "Earnings YoY", "Revenue YoY"])
 
     data = []
     earnings_map = {}
     revenue_map = {}
 
     for row in rows:
-        cells = row.find_all("td")
+        cells = row.find_all(["th", "td"])
         if len(cells) >= 7:
-            date_str = cells[0].text.strip()
+            date_raw = cells[0].text.strip()
             try:
-                date = datetime.strptime(date_str, "%m/%d/%Y").strftime("%d.%m.%Y")
+                date = datetime.strptime(date_raw, "%m/%d/%Y").strftime("%d.%m.%Y")
             except:
-                date = date_str
+                date = date_raw
 
             period = cells[1].text.strip()
             earnings = cells[3].text.strip().replace("$", "")
             surprise = cells[4].text.strip()
-            earnings_map[period] = float(earnings) if earnings.replace('.', '', 1).isdigit() else None
 
-            revenue_tag = cells[6].text.strip()
-            revenue_match = re.search(r'Revenues\\s*:\\s*\\$(\\d+\\.?\\d*)', revenue_tag)
-            revenue = revenue_match.group(1) if revenue_match else None
-            revenue_map[period] = float(revenue) if revenue else None
+            earnings_float = float(earnings) if earnings.replace(".", "", 1).isdigit() else None
+            earnings_map[period] = earnings_float
 
-            data.append([date, period, earnings, surprise, revenue])
+            rev_cell = cells[6].text.strip()
+            rev_match = re.search(r"Revenues\\s*:\\s*\\$([\\d\\.]+)", rev_cell)
+            revenue = float(rev_match.group(1)) if rev_match else None
+            revenue_map[period] = revenue
 
-    df = pd.DataFrame(data, columns=["Datum", "Periode", "Earnings", "Earnings Surprise", "Revenue"])
+            data.append([date, period, earnings, surprise])
+
+    df = pd.DataFrame(data, columns=["Datum", "Periode", "Earnings", "Earnings Surprise"])
     df["Earnings YoY"] = ""
     df["Revenue YoY"] = ""
 
     for i, row in df.iterrows():
         period = row["Periode"]
-        if re.match(r"\d{1,2}/\d{4}", period):
+        if re.match(r"\\d{1,2}/\\d{4}", period):
             month, year = period.split("/")
             last_year = f"{month}/{int(year) - 1}"
 
+            # Earnings YoY
             if earnings_map.get(period) and earnings_map.get(last_year):
                 prev = earnings_map[last_year]
                 curr = earnings_map[period]
                 if prev:
                     df.at[i, "Earnings YoY"] = round((curr - prev) / abs(prev) * 100, 2)
 
+            # Revenue YoY
             if revenue_map.get(period) and revenue_map.get(last_year):
                 prev_r = revenue_map[last_year]
                 curr_r = revenue_map[period]
@@ -159,6 +168,7 @@ def scrape_zacks_earnings(ticker):
                     df.at[i, "Revenue YoY"] = round((curr_r - prev_r) / abs(prev_r) * 100, 2)
 
     return df
+
 
 # 📌 Streamlit UI
 st.set_page_config(layout="wide")

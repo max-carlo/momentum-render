@@ -5,7 +5,6 @@ import pandas as pd
 import yfinance as yf
 import re
 from datetime import datetime
-import matplotlib.pyplot as plt  # <-- Jetzt importiert!
 
 # 📌 Finviz News
 def scrape_finviz_news(ticker):
@@ -83,7 +82,7 @@ def scrape_zacks_earnings(ticker):
 
     df = pd.DataFrame(data, columns=["Date", "Period", "Reported", "Surprise", "% Surprise"])
 
-    # YoY-Berechnung wie im funktionierenden Beispiel
+    # Berechne YoY-Wachstum auf Basis der Perioden
     df["YoY"] = ""
     period_map = {row["Period"]: float(row["Reported"]) for _, row in df.iterrows() if row["Reported"].replace(".", "", 1).isdigit()}
     for idx, row in df.iterrows():
@@ -97,7 +96,7 @@ def scrape_zacks_earnings(ticker):
                 previous = period_map[compare_period]
                 if previous != 0:
                     growth = round((current - previous) / abs(previous) * 100, 2)
-                    df.at[idx, "YoY"] = growth
+                    df.at[idx, "YoY"] = f"{growth}%"
 
     return df[["Date", "Period", "Surprise", "% Surprise", "YoY"]]
 
@@ -120,20 +119,20 @@ def get_earnings_data(ticker):
             return f"Fehler beim Laden der Earnings-Seite: {e}"
         browser.close()
 
-    def clean(text):
-        return re.sub(r"[^\d\.\-%]", "", text).replace(",", "") if text else "N/A"
-
-    def signed(text):
-        return f"-{clean(text)}" if "-" in text else clean(text)
-
     try:
         dt = datetime.strptime(earnings_date.replace(" at", "").replace(" ET", "").split(", ", 1)[-1], "%B %d, %Y %I:%M %p")
         formatted_date = dt.strftime("%d/%m/%y %I:%M %p")
     except:
         formatted_date = "N/A"
 
-    eg = clean(earnings_growth).rstrip("%")
-    rg = clean(revenue_growth).rstrip("%")
+    def clean(text):
+        return re.sub(r"[^\d\.\-%]", "", text).replace(",", "") if text else "N/A"
+
+    def signed(text):
+        return f"-{clean(text)}" if "-" in text else clean(text)
+
+    eg = clean(earnings_growth)
+    rg = clean(revenue_growth).replace("%%", "%")
     es = signed(earnings_surprise)
     rs = signed(revenue_surprise)
 
@@ -148,10 +147,10 @@ def get_earnings_data(ticker):
 
 # 📌 Streamlit UI
 st.set_page_config(layout="wide")
-st.title("📈 Aktienanalyse")
+st.title("📈 Hanabi Market Scraper")
 
 with st.form("main_form"):
-    ticker = st.text_input("Ticker eingeben", "")
+    ticker = st.text_input("Ticker eingeben (z. B. AAPL)", "")
     submitted = st.form_submit_button("Daten abrufen")
 
 if submitted and ticker:
@@ -162,38 +161,22 @@ if submitted and ticker:
         st.subheader(f"📰 Finviz News zu {ticker}")
         news = scrape_finviz_news(ticker)
         if isinstance(news, list):
-            news_html = "<div style='max-height: 225px; overflow-y: auto;'>"
             for i, (time, title, url, source) in enumerate(news):
                 bg = "#f0f0f0" if i % 2 else "white"
-                news_html += (
+                st.markdown(
                     f"<div style='padding:6px; font-size:13px; background-color:{bg}; line-height:1.4;'>"
                     f"<strong>{time}</strong> – <a href='{url}' target='_blank'>{title}</a> ({source})"
-                    f"</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
                 )
-            news_html += "</div>"
-            st.markdown(news_html, unsafe_allow_html=True)
         else:
             st.error(news)
 
     with col2:
         st.subheader(f"📅 Aktuelle Earnings zu {ticker} (EarningsWhispers)")
         result = get_earnings_data(ticker)
-        st.text_area("Earnings Summary", result, height=225)
+        st.text_area("Earnings Summary", result, height=180)
 
     st.subheader(f"📊 Zacks Earnings History für {ticker}")
     df = scrape_zacks_earnings(ticker)
     st.dataframe(df, use_container_width=True)
-
-    # Diagramm anzeigen, wenn Werte vorhanden
-    if "YoY" in df.columns and df["YoY"].apply(lambda x: isinstance(x, (float, int))).any():
-        df_chart = df[df["YoY"] != ""].copy()
-        df_chart["YoY"] = pd.to_numeric(df_chart["YoY"], errors="coerce")
-        df_chart = df_chart.dropna(subset=["YoY"])
-        df_chart = df_chart.sort_values("Period")
-        fig, ax = plt.subplots()
-        ax.plot(df_chart["Period"], df_chart["YoY"], marker="o")
-        ax.set_title("YoY Wachstum (Zacks)")
-        ax.set_xlabel("Period")
-        ax.set_ylabel("YoY (%)")
-        plt.xticks(rotation=45)
-        st.pyplot(fig)

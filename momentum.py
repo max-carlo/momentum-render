@@ -56,6 +56,7 @@ def scrape_zacks_earnings(ticker):
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_selector("table#earnings_announcements_earnings_table")
             html = page.content()
         except Exception as e:
             browser.close()

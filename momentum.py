@@ -54,15 +54,18 @@ def scrape_zacks_earnings(ticker):
             "Chrome/134.0.0.0 Safari/537.36"
         ))
         page = context.new_page()
-        try:
+try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_selector("table#earnings_announcements_earnings_table", timeout=10000)
+            page.wait_for_selector("table#earnings_announcements_earnings_table", timeout=20000)  # verlängert
             html = page.content()
         except Exception as e:
+            with open("zacks_error.html", "w", encoding="utf-8") as f:
+                f.write(page.content())  # HTML zum Debuggen speichern
+            screenshot_path = f"screenshot_{ticker}.png"
+            page.screenshot(path=screenshot_path)
             browser.close()
-            return pd.DataFrame([["Fehler beim Laden der Zacks-Seite", "", "", "", ""]],
+            return pd.DataFrame([[f"Fehler beim Laden der Zacks-Seite: {e}", "", "", "", ""]],
                                 columns=["Date", "Period", "Surprise", "% Surprise", "Change %"])
-        browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
     rows = soup.select("table#earnings_announcements_earnings_table tr.odd, tr.even")

@@ -5,7 +5,7 @@ import pandas as pd
 import yfinance as yf
 import re
 from datetime import datetime
-import matplotlib.pyplot as plt  # <-- Jetzt importiert!
+import matplotlib.pyplot as plt
 
 # 📌 Finviz News
 def scrape_finviz_news(ticker):
@@ -54,9 +54,9 @@ def scrape_zacks_earnings(ticker):
             "Chrome/134.0.0.0 Safari/537.36"
         ))
         page = context.new_page()
-try:
+        try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_selector("table#earnings_announcements_earnings_table", timeout=20000)  # verlängert
+            page.wait_for_selector("table#earnings_announcements_earnings_table", timeout=20000)
             html = page.content()
         except Exception as e:
             with open("zacks_error.html", "w", encoding="utf-8") as f:
@@ -66,6 +66,7 @@ try:
             browser.close()
             return pd.DataFrame([[f"Fehler beim Laden der Zacks-Seite: {e}", "", "", "", ""]],
                                 columns=["Date", "Period", "Surprise", "% Surprise", "Change %"])
+        browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
     rows = soup.select("table#earnings_announcements_earnings_table tr.odd, tr.even")
@@ -190,13 +191,14 @@ if submitted and ticker:
     col3, col4 = st.columns([3, 2])
     with col3:
         st.dataframe(df, use_container_width=True)
+
     with col4:
-        if "Change %" in df.columns and df["Change %"].apply(lambda x: isinstance(x, (float, int))).any():
+        if "Change %" in df.columns and df["Change %"].apply(lambda x: isinstance(x, (float, int, float))).any():
             df_chart = df[df["Change %"] != ""].copy()
             df_chart["Change %"] = pd.to_numeric(df_chart["Change %"], errors="coerce")
             df_chart = df_chart.dropna(subset=["Change %"])
             df_chart = df_chart.sort_values("Period")
-            fig, ax = plt.subplots(figsize=(4, 3))  # kleineres Diagramm
+            fig, ax = plt.subplots(figsize=(4, 3))  # kleines Diagramm
             ax.plot(df_chart["Period"], df_chart["Change %"], marker="o")
             ax.set_title("Change %")
             ax.set_xlabel("Period")

@@ -119,20 +119,20 @@ def get_earnings_data(ticker):
             return f"Fehler beim Laden der Earnings-Seite: {e}"
         browser.close()
 
-    def clean(text):
-        return re.sub(r"[^\d\.\-%]", "", text).replace(",", "") if text else "N/A"
-
-    def signed(text):
-        return f"-{clean(text)}" if "-" in text else clean(text)
-
     try:
         dt = datetime.strptime(earnings_date.replace(" at", "").replace(" ET", "").split(", ", 1)[-1], "%B %d, %Y %I:%M %p")
         formatted_date = dt.strftime("%d/%m/%y %I:%M %p")
     except:
         formatted_date = "N/A"
 
-    eg = clean(earnings_growth).rstrip("%")
-    rg = clean(revenue_growth).rstrip("%")
+    def clean(text):
+        return re.sub(r"[^\d\.\-%]", "", text).replace(",", "") if text else "N/A"
+
+    def signed(text):
+        return f"-{clean(text)}" if "-" in text else clean(text)
+
+    eg = clean(earnings_growth)
+    rg = clean(revenue_growth).replace("%%", "%")
     es = signed(earnings_surprise)
     rs = signed(revenue_surprise)
 
@@ -161,33 +161,22 @@ if submitted and ticker:
         st.subheader(f"📰 Finviz News zu {ticker}")
         news = scrape_finviz_news(ticker)
         if isinstance(news, list):
-            news_html = "<div style='max-height: 225px; overflow-y: auto;'>"
             for i, (time, title, url, source) in enumerate(news):
                 bg = "#f0f0f0" if i % 2 else "white"
-                news_html += (
+                st.markdown(
                     f"<div style='padding:6px; font-size:13px; background-color:{bg}; line-height:1.4;'>"
                     f"<strong>{time}</strong> – <a href='{url}' target='_blank'>{title}</a> ({source})"
-                    f"</div>"
+                    f"</div>",
+                    unsafe_allow_html=True
                 )
-            news_html += "</div>"
-            st.markdown(news_html, unsafe_allow_html=True)
         else:
             st.error(news)
 
     with col2:
         st.subheader(f"📅 Aktuelle Earnings zu {ticker} (EarningsWhispers)")
         result = get_earnings_data(ticker)
-        st.text_area("Earnings Summary", result, height=225)
+        st.text_area("Earnings Summary", result, height=180)
 
     st.subheader(f"📊 Zacks Earnings History für {ticker}")
     df = scrape_zacks_earnings(ticker)
     st.dataframe(df, use_container_width=True)
-
-    # 📈 Line Chart for YoY
-    if "YoY" in df.columns:
-        chart_data = df[["Period", "YoY"]].dropna()
-        chart_data = chart_data[chart_data["YoY"].str.endswith("%")]
-        if not chart_data.empty:
-            chart_data["YoY"] = chart_data["YoY"].str.replace("%", "").astype(float)
-            chart_data = chart_data[::-1]
-            st.line_chart(chart_data.set_index("Period"))

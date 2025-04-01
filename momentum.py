@@ -5,6 +5,9 @@ import pandas as pd
 import yfinance as yf
 import re
 from datetime import datetime
+import matplotlib.pyplot as plt
+from PIL import Image
+import os
 
 # 📌 Finviz News
 def scrape_finviz_news(ticker):
@@ -42,63 +45,24 @@ def scrape_finviz_news(ticker):
 
     return news_items[:15]
 
-# 📌 Zacks Earnings
-def scrape_zacks_earnings(ticker):
-    url = f"https://www.zacks.com/stock/research/{ticker}/earnings-calendar"
+# 📌 Seeking Alpha Screenshot
+def screenshot_seeking_alpha(ticker):
+    url = f"https://seekingalpha.com/symbol/{ticker}/earnings"
+    screenshot_path = f"screenshot_{ticker}.png"
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/134.0.0.0 Safari/537.36"
-        ))
+        context = browser.new_context(viewport={'width': 1400, 'height': 1000})
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            html = page.content()
+            page.wait_for_selector("div.flex.w-full.max-w-full.grow.flex-col", timeout=15000)
+            element = page.locator("div.flex.w-full.max-w-full.grow.flex-col").first
+            element.screenshot(path=screenshot_path)
         except Exception as e:
             browser.close()
-            return pd.DataFrame([["Fehler beim Laden der Zacks-Seite", "", "", "", ""]],
-                                columns=["Date", "Period", "Surprise", "% Surprise", "YoY"])
+            return None, f"Fehler beim Laden des Seeking Alpha Screenshots: {e}"
         browser.close()
-
-    soup = BeautifulSoup(html, "html.parser")
-    rows = soup.select("table#earnings_announcements_earnings_table tr.odd, tr.even")
-
-    if not rows:
-        return pd.DataFrame([["Keine Datenzeilen gefunden", "", "", "", ""]],
-                            columns=["Date", "Period", "Surprise", "% Surprise", "YoY"])
-
-    data = []
-    for row in rows:
-        cells = row.find_all(["th", "td"])
-        if len(cells) == 7:
-            date = cells[0].text.strip()
-            period = cells[1].text.strip()
-            reported = cells[3].text.strip().replace("$", "")
-            surprise = cells[4].text.strip()
-            surprise_pct = cells[5].text.strip()
-            data.append([date, period, reported, surprise, surprise_pct])
-
-    df = pd.DataFrame(data, columns=["Date", "Period", "Reported", "Surprise", "% Surprise"])
-
-    # Berechne YoY-Wachstum auf Basis der Perioden
-    df["YoY"] = ""
-    period_map = {row["Period"]: float(row["Reported"]) for _, row in df.iterrows() if row["Reported"].replace(".", "", 1).isdigit()}
-    for idx, row in df.iterrows():
-        period = row["Period"]
-        if re.match(r"\d{1,2}/\d{4}", period):
-            month, year = period.split("/")
-            last_year = str(int(year) - 1)
-            compare_period = f"{month}/{last_year}"
-            if compare_period in period_map:
-                current = float(row["Reported"])
-                previous = period_map[compare_period]
-                if previous != 0:
-                    growth = round((current - previous) / abs(previous) * 100, 2)
-                    df.at[idx, "YoY"] = f"{growth}%"
-
-    return df[["Date", "Period", "Surprise", "% Surprise", "YoY"]]
+    return screenshot_path, None
 
 # 📌 EarningsWhispers
 def get_earnings_data(ticker):
@@ -119,20 +83,20 @@ def get_earnings_data(ticker):
             return f"Fehler beim Laden der Earnings-Seite: {e}"
         browser.close()
 
-    try:
-        dt = datetime.strptime(earnings_date.replace(" at", "").replace(" ET", "").split(", ", 1)[-1], "%B %d, %Y %I:%M %p")
-        formatted_date = dt.strftime("%d/%m/%y %I:%M %p")
-    except:
-        formatted_date = "N/A"
-
     def clean(text):
         return re.sub(r"[^\d\.\-%]", "", text).replace(",", "") if text else "N/A"
 
     def signed(text):
         return f"-{clean(text)}" if "-" in text else clean(text)
 
-    eg = clean(earnings_growth)
-    rg = clean(revenue_growth).replace("%%", "%")
+    try:
+        dt = datetime.strptime(earnings_date.replace(" at", "").replace(" ET", "").split(", ", 1)[-1], "%B %d, %Y %I:%M %p")
+        formatted_date = dt.strftime("%d/%m/%y %I:%M %p")
+    except:
+        formatted_date = "N/A"
+
+    eg = clean(earnings_growth).rstrip("%")
+    rg = clean(revenue_growth).rstrip("%")
     es = signed(earnings_surprise)
     rs = signed(revenue_surprise)
 
@@ -147,10 +111,10 @@ def get_earnings_data(ticker):
 
 # 📌 Streamlit UI
 st.set_page_config(layout="wide")
-st.title("📈 Hanabi Market Scraper")
+st.title("📈 Aktienanalyse")
 
 with st.form("main_form"):
-    ticker = st.text_input("Ticker eingeben (z. B. AAPL)", "")
+    ticker = st.text_input("Ticker eingeben", "")
     submitted = st.form_submit_button("Daten abrufen")
 
 if submitted and ticker:
@@ -161,22 +125,28 @@ if submitted and ticker:
         st.subheader(f"📰 Finviz News zu {ticker}")
         news = scrape_finviz_news(ticker)
         if isinstance(news, list):
+            news_html = "<div style='max-height: 225px; overflow-y: auto;'>"
             for i, (time, title, url, source) in enumerate(news):
                 bg = "#f0f0f0" if i % 2 else "white"
-                st.markdown(
+                news_html += (
                     f"<div style='padding:6px; font-size:13px; background-color:{bg}; line-height:1.4;'>"
                     f"<strong>{time}</strong> – <a href='{url}' target='_blank'>{title}</a> ({source})"
-                    f"</div>",
-                    unsafe_allow_html=True
+                    f"</div>"
                 )
+            news_html += "</div>"
+            st.markdown(news_html, unsafe_allow_html=True)
         else:
             st.error(news)
 
     with col2:
         st.subheader(f"📅 Aktuelle Earnings zu {ticker} (EarningsWhispers)")
         result = get_earnings_data(ticker)
-        st.text_area("Earnings Summary", result, height=180)
+        st.text_area("Earnings Summary", result, height=225)
 
-    st.subheader(f"📊 Zacks Earnings History für {ticker}")
-    df = scrape_zacks_earnings(ticker)
-    st.dataframe(df, use_container_width=True)
+    st.subheader(f"📸 Earnings Chart von Seeking Alpha")
+    screenshot_path, error = screenshot_seeking_alpha(ticker)
+    if screenshot_path:
+        st.image(Image.open(screenshot_path), caption="Screenshot von Seeking Alpha", use_column_width=True)
+        os.remove(screenshot_path)  # temporär löschen, optional
+    else:
+        st.warning(error or "Screenshot konnte nicht geladen werden.")

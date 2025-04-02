@@ -5,7 +5,6 @@ import pandas as pd
 import yfinance as yf
 import re
 from datetime import datetime
-import matplotlib.pyplot as plt
 
 # 📌 Finviz News
 def scrape_finviz_news(ticker):
@@ -60,7 +59,7 @@ def scrape_seeking_alpha_earnings(ticker):
             html = page.content()
         except Exception as e:
             browser.close()
-            return pd.DataFrame([["Fehler beim Laden der Seeking Alpha-Seite: {e}", "", "", "", ""]],
+            return pd.DataFrame([[f"Fehler beim Laden der Seeking Alpha-Seite: {e}", "", "", "", ""]],
                                 columns=["Date", "Period", "EPS Estimate", "EPS Actual", "Surprise %"])
         browser.close()
 
@@ -147,5 +146,27 @@ if submitted and ticker:
     col1, col2 = st.columns(2)
 
     with col1:
-        st.sub
- 
+        st.subheader(f"📰 Finviz News zu {ticker}")
+        news = scrape_finviz_news(ticker)
+        if isinstance(news, list):
+            news_html = "<div style='max-height: 225px; overflow-y: auto;'>"
+            for i, (time, title, url, source) in enumerate(news):
+                bg = "#f0f0f0" if i % 2 else "white"
+                news_html += (
+                    f"<div style='padding:6px; font-size:13px; background-color:{bg}; line-height:1.4;'>"
+                    f"<strong>{time}</strong> – <a href='{url}' target='_blank'>{title}</a> ({source})"
+                    f"</div>"
+                )
+            news_html += "</div>"
+            st.markdown(news_html, unsafe_allow_html=True)
+        else:
+            st.error(news)
+
+    with col2:
+        st.subheader(f"📅 Aktuelle Earnings zu {ticker} (EarningsWhispers)")
+        result = get_earnings_data(ticker)
+        st.text_area("Earnings Summary", result, height=225)
+
+    st.subheader(f"📊 Earnings-Historie von Seeking Alpha")
+    df = scrape_seeking_alpha_earnings(ticker)
+    st.dataframe(df, use_container_width=True)

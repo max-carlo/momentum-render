@@ -148,5 +148,4 @@ if submitted and ticker:
 
     with col1:
         st.sub
-::contentReference[oaicite:4]{index=4}
  

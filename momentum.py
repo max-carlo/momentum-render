@@ -42,7 +42,7 @@ def scrape_finviz_news(ticker):
 
     return news_items[:15]
 
-# 📌 SeekingAlpha Earnings Table
+
 def scrape_seekingalpha_table(ticker):
     url = f"https://seekingalpha.com/symbol/{ticker}/earnings"
     with sync_playwright() as p:
@@ -51,14 +51,32 @@ def scrape_seekingalpha_table(ticker):
         page = context.new_page()
         try:
             page.goto(url, timeout=60000)
-            page.wait_for_selector("table", timeout=20000)
+
+            # Warten auf Sichtbarkeit der Tabelle (max. 30s)
+            found_table = False
+            for _ in range(30):
+                if page.locator("table").is_visible():
+                    found_table = True
+                    break
+                page.wait_for_timeout(1000)
+
             html = page.content()
+            if not found_table:
+                raise Exception("Tabelle nicht sichtbar")
+
         except Exception as e:
+            # Speichern für Debug-Zwecke
+            with open(f"{ticker}_seekingalpha_debug.html", "w", encoding="utf-8") as f:
+                f.write(page.content())
+
+            page.screenshot(path=f"{ticker}_seekingalpha_screenshot.png", full_page=True)
             browser.close()
+
             return pd.DataFrame([[f"Fehler beim Laden der Seite: {e}", "", "", "", ""]],
                                 columns=["Date", "Period", "EPS Estimate", "EPS Actual", "Surprise %"])
         browser.close()
 
+    # HTML parsen
     soup = BeautifulSoup(html, "html.parser")
     table = soup.find("table")
     rows = table.find_all("tr") if table else []
@@ -77,6 +95,8 @@ def scrape_seekingalpha_table(ticker):
     df = pd.DataFrame(data, columns=["Date", "Period", "EPS Estimate", "EPS Actual", "Surprise %"])
     return df if not df.empty else pd.DataFrame([["Keine Daten gefunden", "", "", "", ""]],
                                                 columns=["Date", "Period", "EPS Estimate", "EPS Actual", "Surprise %"])
+
+
 
 # 📌 EarningsWhispers
 def get_earnings_data(ticker):

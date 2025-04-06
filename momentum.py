@@ -42,58 +42,48 @@ def scrape_finviz_news(ticker):
 
     return news_items[:15]
 
-# 📌 Seeking Alpha Earnings
-def scrape_seeking_alpha_earnings(ticker):
+# 📌 SeekingAlpha Earnings Table
+def scrape_seekingalpha_table(ticker):
     url = f"https://seekingalpha.com/symbol/{ticker}/earnings"
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/134.0.0.0 Safari/537.36"
-        ))
+        context = browser.new_context()
         page = context.new_page()
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.goto(url, timeout=60000)
             page.wait_for_selector("table", timeout=20000)
             html = page.content()
         except Exception as e:
             browser.close()
-            return pd.DataFrame([[f"Fehler beim Laden der Seeking Alpha-Seite: {e}", "", "", "", ""]],
+            return pd.DataFrame([[f"Fehler beim Laden der Seite: {e}", "", "", "", ""]],
                                 columns=["Date", "Period", "EPS Estimate", "EPS Actual", "Surprise %"])
         browser.close()
 
     soup = BeautifulSoup(html, "html.parser")
-    rows = soup.select("table tbody tr")
-
-    if not rows:
-        return pd.DataFrame([["Keine Datenzeilen gefunden", "", "", "", ""]],
-                            columns=["Date", "Period", "EPS Estimate", "EPS Actual", "Surprise %"])
+    table = soup.find("table")
+    rows = table.find_all("tr") if table else []
 
     data = []
-    for row in rows:
+    for row in rows[1:]:
         cells = row.find_all("td")
         if len(cells) >= 5:
             date = cells[0].text.strip()
             period = cells[1].text.strip()
-            eps_estimate = cells[2].text.strip()
-            eps_actual = cells[3].text.strip()
-            surprise_pct = cells[4].text.strip()
-            data.append([date, period, eps_estimate, eps_actual, surprise_pct])
+            estimate = cells[2].text.strip()
+            actual = cells[3].text.strip()
+            surprise = cells[4].text.strip()
+            data.append([date, period, estimate, actual, surprise])
 
     df = pd.DataFrame(data, columns=["Date", "Period", "EPS Estimate", "EPS Actual", "Surprise %"])
-    return df
+    return df if not df.empty else pd.DataFrame([["Keine Daten gefunden", "", "", "", ""]],
+                                                columns=["Date", "Period", "EPS Estimate", "EPS Actual", "Surprise %"])
 
 # 📌 EarningsWhispers
 def get_earnings_data(ticker):
     url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/134.0.0.0 Safari/537.36"
-        ))
+        context = browser.new_context()
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -145,6 +135,7 @@ if submitted and ticker:
     ticker = ticker.strip().upper()
     col1, col2 = st.columns(2)
 
+    # Finviz News
     with col1:
         st.subheader(f"📰 Finviz News zu {ticker}")
         news = scrape_finviz_news(ticker)
@@ -162,11 +153,13 @@ if submitted and ticker:
         else:
             st.error(news)
 
+    # EarningsWhispers
     with col2:
         st.subheader(f"📅 Aktuelle Earnings zu {ticker} (EarningsWhispers)")
         result = get_earnings_data(ticker)
         st.text_area("Earnings Summary", result, height=225)
 
-    st.subheader(f"📊 Earnings-Historie von Seeking Alpha")
-    df = scrape_seeking_alpha_earnings(ticker)
+    # SeekingAlpha Data
+    st.subheader(f"📊 Earnings History von SeekingAlpha für {ticker}")
+    df = scrape_seekingalpha_table(ticker)
     st.dataframe(df, use_container_width=True)

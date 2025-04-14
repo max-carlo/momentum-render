@@ -7,6 +7,7 @@ import re
 import requests
 from playwright.sync_api import sync_playwright
 import matplotlib.pyplot as plt
+from streamlit.components.v1 import html
 
 st.set_page_config(layout="wide")
 st.title("Aktienanalyse")
@@ -84,15 +85,15 @@ def get_finhub_data(ticker, api_key):
     url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&token={api_key}"
     res = requests.get(url)
     if res.status_code != 200:
-        return pd.DataFrame([["Fehler beim Laden von Finhub"]], columns=["Fehler"])
+        return pd.DataFrame(["Fehler beim Laden von Finhub"], columns=["Fehler"])
     data = res.json()
     df = pd.DataFrame(data)
     if df.empty:
-        return pd.DataFrame([["Keine Finhub-Daten verf\xfcgbar"]], columns=["Hinweis"])
-    df = df.head(12).copy()
-    df["actual"] = pd.to_numeric(df["actual"], errors="coerce")
+        return pd.DataFrame(["Keine Finhub-Daten verf\u00fcgbar"], columns=["Hinweis"])
     df = df.sort_values("period")
-    df["Change %"] = df["actual"].pct_change(periods=4) * 100
+    df["actual"] = pd.to_numeric(df["actual"], errors="coerce")
+    df["prior_year"] = df["actual"].shift(4)
+    df["Change %"] = ((df["actual"] - df["prior_year"]) / df["prior_year"]) * 100
     df["Change %"] = df["Change %"].round(2)
     df["Period"] = df["period"].str.replace("-", "/")
     df = df[["Period", "actual", "Change %"]]
@@ -108,29 +109,27 @@ if submitted and ticker:
         st.header("News")
         news_items = scrape_finviz_news(ticker)
 
-        st.markdown("""
-        <style>
-        .finviz-item:nth-child(even) {
-            background-color: rgba(200, 200, 200, 0.1);
-        }
-        .finviz-scroll {
-            height: 225px;
-            overflow-y: auto;
-            padding-top: 0;
-            margin-top: 0;
-        }
-        </style>
-        <div class="finviz-scroll">
-        """, unsafe_allow_html=True)
-
-        for idx, item in enumerate(news_items):
-            if isinstance(item, str):
+        if isinstance(news_items, list) and all(isinstance(i, tuple) for i in news_items):
+            news_html = """
+            <style>
+            .finviz-scroll {
+                height: 225px;
+                overflow-y: auto;
+                font-size: 0.875rem;
+            }
+            .finviz-item {
+                margin-bottom: 6px;
+            }
+            </style>
+            <div class="finviz-scroll">
+            """
+            for time, title, url, src in news_items:
+                news_html += f"<div class='finviz-item'><strong>{time}</strong> — <a href='{url}' target='_blank'>{title}</a> ({src})</div>"
+            news_html += "</div>"
+            html(news_html, height=250)
+        else:
+            for item in news_items:
                 st.error(item)
-            else:
-                time, title, url, src = item
-                st.markdown(f"<div class='finviz-item'><strong>{time}</strong> — <a href='{url}' target='_blank'>{title}</a> ({src})</div>", unsafe_allow_html=True)
-
-        st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
         st.header("Last Earnings")
@@ -144,12 +143,12 @@ if submitted and ticker:
     if not finhub_df.empty and "Reported EPS" in finhub_df.columns:
         st.dataframe(finhub_df)
 
-        st.subheader("EPS Ver\xe4nderung (YoY %)")
+        st.subheader("EPS Veränderung (YoY %)")
         fig, ax = plt.subplots()
         ax.plot(finhub_df["Period"], finhub_df["Change %"], marker="o")
         ax.set_ylabel("Change %")
         ax.set_xlabel("Period")
-        ax.set_title("Year-over-Year Ver\xe4nderung von Reported EPS")
+        ax.set_title("Year-over-Year Veränderung von Reported EPS")
         ax.grid(True)
         plt.xticks(rotation=45)
         st.pyplot(fig)

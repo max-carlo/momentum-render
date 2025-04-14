@@ -39,6 +39,8 @@ h1, .block-title, .matplot-title, .stHeader, .stMarkdown h2, .stMarkdown h3 {
     font-size: 0.875rem;
     font-family: sans-serif;
     line-height: 1.4;
+    overflow-y: auto;
+    height: 225px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -111,7 +113,7 @@ def get_earnings_data(ticker):
 # Finhub YoY EPS Change mit Vergleich zum Vorjahresquartal
 
 def get_finhub_data_yoy(ticker, api_key):
-    url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&limit=12&token={api_key}"
+    url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&token={api_key}"
     res = requests.get(url)
     if res.status_code != 200:
         return pd.DataFrame([{"Hinweis": "Fehler beim Laden von Finhub"}])
@@ -163,7 +165,7 @@ if submitted and ticker:
                 time, title, url, src = item
                 news_html += f"<div><strong>{time}</strong> — <a href='{url}' target='_blank'>{title}</a> ({src})</div>"
         news_html += "</div>"
-        html(news_html, height=250)
+        html(news_html)
 
     with col2:
         st.header("Last Earnings")
@@ -192,3 +194,6 @@ if submitted and ticker:
         ax.grid(True)
         plt.xticks(rotation=45)
         st.pyplot(fig)
+
+    # Link zu Seeking Alpha Earnings Page
+    st.markdown(f"[Zur Earnings-Seite auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)")

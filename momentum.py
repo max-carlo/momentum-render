@@ -2,12 +2,12 @@ import streamlit as st
 from bs4 import BeautifulSoup
 from datetime import datetime
 import pandas as pd
-import requests
-import matplotlib.pyplot as plt
+import yfinance as yf
 import re
+import requests
 from playwright.sync_api import sync_playwright
+import matplotlib.pyplot as plt
 
-# 📌 Streamlit Setup
 st.set_page_config(layout="wide")
 st.title("📈 Aktienanalyse")
 
@@ -18,13 +18,7 @@ with st.form("main_form"):
 # 📌 Finviz News
 def scrape_finviz_news(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}&p=d"
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/134.0.0.0 Safari/537.36"
-        )
-    }
+    headers = {"User-Agent": "Mozilla/5.0"}
     try:
         res = requests.get(url, headers=headers)
         res.raise_for_status()
@@ -33,19 +27,13 @@ def scrape_finviz_news(ticker):
 
     soup = BeautifulSoup(res.text, "html.parser")
     rows = soup.select("table.fullview-news-outer tr")
-
     news_items = []
     for row in rows:
         time_cell = row.find("td", width="130")
         link_tag = row.find("a", class_="tab-link-news")
         source = row.find("span")
         if time_cell and link_tag and source:
-            time = time_cell.text.strip()
-            title = link_tag.text.strip()
-            url = link_tag["href"]
-            src = source.text.strip("()")
-            news_items.append((time, title, url, src))
-
+            news_items.append((time_cell.text.strip(), link_tag.text.strip(), link_tag["href"], source.text.strip("()")))
     return news_items
 
 # 📌 EarningsWhispers
@@ -53,11 +41,7 @@ def get_earnings_data(ticker):
     url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/134.0.0.0 Safari/537.36"
-        ))
+        context = browser.new_context()
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -68,14 +52,11 @@ def get_earnings_data(ticker):
             revenue_growth = page.inner_text("#revenue .growth")
             revenue_surprise = page.inner_text("#revenue .surprise")
         except Exception as e:
-            return f"Fehler beim Laden der Earnings-Seite: {e}"
+            return f"Fehler beim Laden: {e}"
         browser.close()
 
-    def clean(text):
-        return re.sub(r"[^\d\.\-%]", "", text).replace(",", "") if text else "N/A"
-
-    def signed(text):
-        return f"-{clean(text)}" if "-" in text else clean(text)
+    def clean(t): return re.sub(r"[^\d\.\-%]", "", t).replace(",", "") if t else "N/A"
+    def signed(t): return f"-{clean(t)}" if "-" in t else clean(t)
 
     try:
         dt = datetime.strptime(earnings_date.replace(" at", "").replace(" ET", "").split(", ", 1)[-1], "%B %d, %Y %I:%M %p")
@@ -83,79 +64,76 @@ def get_earnings_data(ticker):
     except:
         formatted_date = "N/A"
 
-    return {
-        "Earnings Date": formatted_date,
-        "Earnings Growth": f"{clean(earnings_growth)}%",
-        "Revenue Growth": f"{clean(revenue_growth)}%",
-        "Earnings Surprise": signed(earnings_surprise),
-        "Revenue Surprise": signed(revenue_surprise),
-    }
+    try:
+        info = yf.Ticker(ticker).info
+        sr = str(round(info.get("shortRatio", "N/A"), 2)) if isinstance(info.get("shortRatio"), (int, float)) else "N/A"
+    except:
+        sr = "N/A"
 
-# 📌 Finhub EPS
+    return (
+        f"Earnings Date: {formatted_date}\n"
+        f"Earnings Growth: {clean(earnings_growth)}%\n"
+        f"Revenue Growth: {clean(revenue_growth)}%\n"
+        f"Earnings Surprise: {signed(earnings_surprise)}\n"
+        f"Revenue Surprise: {signed(revenue_surprise)}\n"
+        f"Short Ratio: {sr}"
+    )
+
+# 📌 Finhub Earnings
 def get_finhub_data(ticker, api_key):
     url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&token={api_key}"
     res = requests.get(url)
     if res.status_code != 200:
-        return pd.DataFrame([["Fehler beim Abrufen der Finhub-Daten"]], columns=["Quarter", "EPS Actual", "EPS Change %"])
-
+        return pd.DataFrame([["Fehler beim Laden von Finhub"]], columns=["Fehler"])
     data = res.json()
-    if not data:
-        return pd.DataFrame([["Keine Finhub-Daten verfügbar"]], columns=["Quarter", "EPS Actual", "EPS Change %"])
-
     df = pd.DataFrame(data)
-    df = df.sort_values("period").tail(4)
-    df["Quarter"] = df["period"]
-    df["EPS Actual"] = df["actual"]
+    if df.empty:
+        return pd.DataFrame([["Keine Finhub-Daten verfügbar"]], columns=["Hinweis"])
+    df = df.head(12).copy()
+    df["Period"] = df["period"].str.replace("-", "/")
+    df["Change %"] = df["actual"].pct_change(4) * 100
+    df["Change %"] = df["Change %"].round(2)
+    df = df[["Period", "actual", "Change %"]]
+    df.rename(columns={"actual": "Reported EPS"}, inplace=True)
+    return df
 
-    def compute_change(series):
-        return series.pct_change() * 100
-
-    df["EPS Change %"] = compute_change(df["EPS Actual"]).round(2)
-    return df[["Quarter", "EPS Actual", "EPS Change %"]]
-
-# 📌 Hauptlogik
+# 📌 Anzeige
 if submitted and ticker:
     ticker = ticker.strip().upper()
-    api_key = "cvue2t9r01qjg1397ls0cvue2t9r01qjg1397lsg"
-
     col1, col2 = st.columns(2)
 
     with col1:
         st.header("📰 Finviz News")
-        finviz_news = scrape_finviz_news(ticker)
-        st.markdown(
-            """
-            <div style='height: 500px; overflow-y: scroll; padding-right: 10px;'>""",
-            unsafe_allow_html=True
-        )
-        for item in finviz_news:
-            if isinstance(item, str):
-                st.error(item)
-            else:
-                time, title, url, src = item
-                st.markdown(f"**{time}** — [{title}]({url}) ({src})")
-        st.markdown("</div>", unsafe_allow_html=True)
+        news_items = scrape_finviz_news(ticker)
+        with st.container():
+            st.markdown("<div style='height:370px; overflow:auto;'>", unsafe_allow_html=True)
+            for item in news_items:
+                if isinstance(item, str):
+                    st.error(item)
+                else:
+                    time, title, url, src = item
+                    st.markdown(f"**{time}** — [{title}]({url}) ({src})")
+            st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
         st.header("📊 EarningsWhispers")
-        ew_data = get_earnings_data(ticker)
-        if isinstance(ew_data, str):
-            st.error(ew_data)
-        else:
-            for key, value in ew_data.items():
-                st.markdown(f"**{key}:** {value}")
+        st.text(get_earnings_data(ticker))
 
-    # 📌 Finhub EPS Daten
-    st.header("📈 EPS Daten (Finhub)")
+    st.header("📈 Historische Earnings – Finhub")
+    api_key = "cvue2t9r01qjg1397ls0cvue2t9r01qjg1397lsg"
     finhub_df = get_finhub_data(ticker, api_key)
-    st.dataframe(finhub_df)
+    if not finhub_df.empty and "Reported EPS" in finhub_df.columns:
+        st.dataframe(finhub_df)
 
-    # 📊 EPS Change % Chart
-    st.subheader("📉 EPS Veränderung % (Quartal über Quartal)")
-    fig, ax = plt.subplots()
-    ax.plot(finhub_df["Quarter"], finhub_df["EPS Change %"], marker='o')
-    ax.set_title("EPS Change % nach Quartal")
-    ax.set_xlabel("Quartal")
-    ax.set_ylabel("Change %")
-    ax.grid(True)
-    st.pyplot(fig)
+        # Diagramm für Change %
+        st.subheader("EPS Veränderung (YoY %)")
+        fig, ax = plt.subplots()
+        ax.plot(finhub_df["Period"], finhub_df["Change %"], marker="o")
+        ax.set_ylabel("Change %")
+        ax.set_xlabel("Period")
+        ax.set_title("Year-over-Year Veränderung von Reported EPS")
+        ax.grid(True)
+        plt.xticks(rotation=45)
+        st.pyplot(fig)
+    else:
+        st.warning("Keine Finhub-Daten gefunden.")

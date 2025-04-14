@@ -85,14 +85,14 @@ def get_earnings_data(ticker):
         formatted_date = "N/A"
 
     return {
-        "Earnings Date": formatted_date,
         "Earnings Growth": f"{clean(earnings_growth)}%",
-        "Revenue Growth": f"{clean(revenue_growth)}%",
         "Earnings Surprise": signed(earnings_surprise),
+        "Revenue Growth": f"{clean(revenue_growth)}%",
         "Revenue Surprise": signed(revenue_surprise),
+        "Short Ratio": "N/A"
     }
 
-# Finhub EPS – erweiterte Version
+# Finhub EPS – alle Quartale
 
 def get_finhub_data(ticker, api_key):
     url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&token={api_key}"
@@ -120,18 +120,27 @@ if submitted and ticker:
     with col1:
         st.header("News")
         finviz_news = scrape_finviz_news(ticker)
-        st.markdown(
-            """
-            <div style='height: 250px; overflow-y: scroll; padding-right: 10px;'>""",
-            unsafe_allow_html=True
-        )
+        news_html = """
+        <style>
+        .finviz-scroll {
+            height: 225px;
+            overflow-y: auto;
+            font-size: 0.875rem;
+        }
+        .finviz-item {
+            margin-bottom: 6px;
+        }
+        </style>
+        <div class="finviz-scroll">
+        """
         for item in finviz_news:
             if isinstance(item, str):
                 st.error(item)
             else:
                 time, title, url, src = item
-                st.markdown(f"**{time}** — [{title}]({url}) ({src})")
-        st.markdown("</div>", unsafe_allow_html=True)
+                news_html += f"<div class='finviz-item'><strong>{time}</strong> — <a href='{url}' target='_blank'>{title}</a> ({src})</div>"
+        news_html += "</div>"
+        html(news_html, height=250)
 
     with col2:
         st.header("Last Earnings")
@@ -139,8 +148,22 @@ if submitted and ticker:
         if isinstance(ew_data, str):
             st.error(ew_data)
         else:
-            for key, value in ew_data.items():
-                st.markdown(f"**{key}:** {value}")
+            st.markdown("""
+            <style>
+            .earnings-box {
+                height: 225px;
+                overflow-y: auto;
+                white-space: pre-wrap;
+                margin: 0;
+                padding: 0;
+                display: flex;
+                align-items: flex-start;
+            }
+            </style>
+            <div class='earnings-box'>
+            """, unsafe_allow_html=True)
+            st.markdown("<pre>" + "\n".join([f"{key}: {value}" for key, value in ew_data.items()]) + "</pre>", unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
     st.header("Historische Earnings")
     finhub_df = get_finhub_data(ticker, api_key)

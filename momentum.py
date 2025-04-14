@@ -2,15 +2,17 @@ import streamlit as st
 from bs4 import BeautifulSoup
 from datetime import datetime
 import yfinance as yf
-import re
 import requests
-from playwright.sync_api import sync_playwright
+import re
 import pandas as pd
+import matplotlib.pyplot as plt
+from playwright.sync_api import sync_playwright
 
-# 📌 Streamlit Setup
+# 📌 Konfiguration
 st.set_page_config(layout="wide")
 st.title("📈 Aktienanalyse")
 
+# 📌 Form
 with st.form("main_form"):
     ticker = st.text_input("Ticker eingeben", "")
     submitted = st.form_submit_button("Daten abrufen")
@@ -46,7 +48,7 @@ def scrape_finviz_news(ticker):
             src = source.text.strip("()")
             news_items.append((time, title, url, src))
 
-    return news_items[:15]
+    return news_items
 
 # 📌 EarningsWhispers
 def get_earnings_data(ticker):
@@ -95,50 +97,85 @@ def get_earnings_data(ticker):
     except:
         sr = "N/A"
 
-    return f"{formatted_date}\nEG: {eg}% / RG: {rg}%\nES: {es} / RS: {rs}\nSR: {sr}"
+    return (
+        f"Next Earnings Date: {formatted_date}\n"
+        f"Earnings Growth: {eg}%\n"
+        f"Revenue Growth: {rg}%\n"
+        f"Earnings Surprise: {es}\n"
+        f"Revenue Surprise: {rs}\n"
+        f"Short Ratio: {sr}"
+    )
 
-# 📌 Finnhub EPS (letzte Quartale)
-def get_finhub_earnings(ticker):
-    api_key = "cvue2t9r01qjg1397ls0cvue2t9r01qjg1397lsg"
+# 📌 Finhub Earnings Data
+def get_finhub_data(ticker, api_key):
     url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&token={api_key}"
     try:
         res = requests.get(url)
         res.raise_for_status()
         data = res.json()
-        if not data:
-            return pd.DataFrame([["Keine Daten"]], columns=["Info"])
-        df = pd.DataFrame(data)
-        df["date"] = pd.to_datetime(df["period"]).dt.strftime("%Y-%m-%d")
-        return df[["date", "actual", "estimate"]].head(4).rename(columns={"actual": "Reported EPS", "estimate": "Estimate"})
     except Exception as e:
-        return pd.DataFrame([[f"Fehler beim Laden der Finnhub-Daten: {e}"]], columns=["Info"])
+        return pd.DataFrame([["Fehler beim Laden von Finhub: {e}"]], columns=["Error"])
+
+    df = pd.DataFrame(data)
+    df["date"] = pd.to_datetime(df["period"])
+    df = df.sort_values("date", ascending=False).head(8).sort_values("date")
+
+    def compute_change(series):
+        return series.pct_change(periods=4) * 100
+
+    df["EPS Change %"] = compute_change(df["actual"])
+    df["Revenue Change %"] = compute_change(df["revenue"])
+    return df[["period", "actual", "EPS Change %", "revenue", "Revenue Change %"]]
 
 # 📌 Datenanzeige
 if submitted and ticker:
     ticker = ticker.strip().upper()
+    api_key = "cvue2t9r01qjg1397ls0cvue2t9r01qjg1397lsg"
+
     col1, col2 = st.columns(2)
 
     with col1:
         st.header("📰 Finviz News")
         finviz_news = scrape_finviz_news(ticker)
-        for item in finviz_news:
-            if isinstance(item, str):
-                st.error(item)
-            else:
-                time, title, url, src = item
-                st.markdown(f"**{time}** — [{title}]({url}) ({src})")
+        with st.container():
+            with st.expander("News anzeigen", expanded=True):
+                st.markdown(
+                    "<div style='height:300px; overflow-y:scroll'>",
+                    unsafe_allow_html=True,
+                )
+                for item in finviz_news:
+                    if isinstance(item, str):
+                        st.error(item)
+                    else:
+                        time, title, url, src = item
+                        st.markdown(f"**{time}** — [{title}]({url}) ({src})")
+                st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
-        st.header("📊 EarningsWhispers")
+        st.header("📊 Earnings Whispers")
         earnings_info = get_earnings_data(ticker)
         st.text(earnings_info)
 
-    # 📌 Finnhub Earnings Table
-    st.header("📈 Finnhub: Letzte 4 Quartale (EPS)")
-    finhub_df = get_finhub_earnings(ticker)
-    st.dataframe(finhub_df)
+    st.header("📈 Finhub Earnings-Daten (letzte 8 Quartale)")
+    finhub_df = get_finhub_data(ticker, api_key)
+    st.dataframe(finhub_df, use_container_width=True)
 
-    # 📌 Seeking Alpha als Hinweis
-    st.header("📷 SeekingAlpha (optional)")
-    sa_url = f"https://seekingalpha.com/symbol/{ticker}/earnings"
-    st.markdown(f"🔗 [Zur SeekingAlpha Earnings-Seite]({sa_url})", unsafe_allow_html=True)
+    st.subheader("📉 Change %: EPS YoY")
+    fig, ax = plt.subplots()
+    ax.plot(finhub_df["period"], finhub_df["EPS Change %"], marker="o")
+    ax.set_title("EPS Change % (YoY)")
+    ax.set_ylabel("%")
+    ax.set_xlabel("Quarter")
+    ax.grid(True)
+    st.pyplot(fig)
+
+    st.subheader("📉 Change %: Revenue YoY")
+    fig2, ax2 = plt.subplots()
+    ax2.plot(finhub_df["period"], finhub_df["Revenue Change %"], marker="o", linestyle="--")
+    ax2.set_title("Revenue Change % (YoY)")
+    ax2.set_ylabel("%")
+    ax2.set_xlabel("Quarter")
+    ax2.grid(True)
+    st.pyplot(fig2)
+
+    st.markdown(f"🔗 [Zur SeekingAlpha Earnings-Seite](https://seekingalpha.com/symbol/{ticker}/earnings)", unsafe_allow_html=True)

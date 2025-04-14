@@ -111,7 +111,7 @@ def get_earnings_data(ticker):
 # Finhub YoY EPS Change mit Vergleich zum Vorjahresquartal
 
 def get_finhub_data_yoy(ticker, api_key):
-    url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&token={api_key}"
+    url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&limit=12&token={api_key}"
     res = requests.get(url)
     if res.status_code != 200:
         return pd.DataFrame([{"Hinweis": "Fehler beim Laden von Finhub"}])

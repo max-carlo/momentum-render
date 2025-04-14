@@ -26,15 +26,15 @@ if (
 st.markdown(f"""
 <style>
 .ampel-box {{
-    position: absolute;
-    top: 18px;
-    left: 10px;
-    font-size: 64px;
+    position: fixed;
+    top: 50px;
+    left: 30px;
+    font-size: 80px;
     line-height: 1;
-    z-index: 10;
+    z-index: 1000;
 }}
 form {{
-    margin-left: 80px;
+    margin-left: 100px;
 }}
 h1, .block-title, .matplot-title, .stHeader, .stMarkdown h2, .stMarkdown h3 {{
     font-size: 1.5rem !important;
@@ -207,10 +207,7 @@ if submitted and ticker:
         with col3:
             st.dataframe(finhub_df)
         with col4:
-            st.markdown("""
-            <style>.matplot-title { font-size: 1rem; font-weight: bold; }</style>
-            <div class='matplot-title'>EPS Veränderung % (Quartal über Quartal)</div>
-            """, unsafe_allow_html=True)
+            st.subheader("EPS Veränderung % (Quartal über Quartal)")
             fig, ax = plt.subplots(figsize=(4, 2))
             ax.plot(finhub_df["Quarter"], finhub_df["EPS Change %"], marker="o")
             ax.set_ylabel("Change %", fontsize=8)

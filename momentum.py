@@ -4,15 +4,14 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import re
 from datetime import datetime
+import yfinance as yf
 
 # 📌 Finviz News
 def scrape_finviz_news(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}&p=d"
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
-        ))
+        context = browser.new_context()
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -39,14 +38,45 @@ def scrape_finviz_news(ticker):
 
     return news_items[:15]
 
+# 📌 TradingView Earnings Data
+def scrape_tradingview_eps(ticker):
+    url = f"https://www.tradingview.com/symbols/{ticker}/financials-earnings/?earnings-period=FQ&revenues-period=FQ"
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        context = browser.new_context(locale="en-US")
+        page = context.new_page()
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(4000)  # Give JS time to render
+            html = page.content()
+        except Exception as e:
+            with open("tradingview_error.html", "w", encoding="utf-8") as f:
+                f.write(page.content())
+            browser.close()
+            return pd.DataFrame([[f"Fehler beim Laden der TradingView-Seite: {e}", "", "", ""]],
+                                columns=["Quarter", "Reported EPS", "Estimate EPS", "Surprise"])
+        browser.close()
+
+    soup = BeautifulSoup(html, "html.parser")
+
+    quarters = [div.text.strip() for div in soup.select('div[class*="title-C9MdAMrq"] span.titleText-C9MdAMrq') if "Reported" not in div.text]
+    reported = [div.text.strip() for div in soup.select('div[data-name="Reported"] div.value-OxVAcLqi')]
+    estimates = [div.text.strip() for div in soup.select('div[data-name="Estimate"] div.value-OxVAcLqi')]
+    surprises = [div.text.strip() for div in soup.select('div[data-name="Surprise"] div.value-OxVAcLqi')]
+
+    length = min(len(quarters), len(reported), len(estimates), len(surprises))
+    data = []
+    for i in range(length):
+        data.append([quarters[i], reported[i], estimates[i], surprises[i]])
+
+    return pd.DataFrame(data, columns=["Quarter", "Reported EPS", "Estimate EPS", "Surprise"])
+
 # 📌 EarningsWhispers
 def get_earnings_data(ticker):
     url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        context = browser.new_context(user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36"
-        ))
+        context = browser.new_context()
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -77,61 +107,21 @@ def get_earnings_data(ticker):
     es = signed(earnings_surprise)
     rs = signed(revenue_surprise)
 
-    return f"{formatted_date}\nEG: {eg}% / RG: {rg}%\nES: {es} / RS: {rs}"
+    try:
+        info = yf.Ticker(ticker).info
+        sr = info.get("shortRatio", "N/A")
+        sr = str(round(sr, 2)) if isinstance(sr, (float, int)) else "N/A"
+    except:
+        sr = "N/A"
 
-# 📌 TradingView Earnings Table
-def scrape_tradingview_earnings(ticker):
-    url = f"https://www.tradingview.com/symbols/{ticker}/financials-earnings/?earnings-period=FQ&revenues-period=FQ"
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        context = browser.new_context()
-        page = context.new_page()
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_selector("div.titleText-C9MdAMrq", timeout=10000)
-            html = page.content()
-        except Exception as e:
-            browser.close()
-            return pd.DataFrame([["Fehler beim Laden der TradingView-Seite", "", "", ""]],
-                                columns=["Quarter", "Reported", "Estimate", "Surprise"])
-        browser.close()
-
-    soup = BeautifulSoup(html, "html.parser")
-
-    # Quartale
-    quarters = [el.text.strip() for el in soup.select("div.titleText-C9MdAMrq") if "Q" in el.text]
-    if not quarters:
-        return pd.DataFrame([["Keine Quartale gefunden", "", "", ""]],
-                            columns=["Quarter", "Reported", "Estimate", "Surprise"])
-
-    # Werte (Reported, Estimate, Surprise)
-    def extract_row(title):
-        row = soup.find("div", {"data-name": title})
-        if not row:
-            return []
-        return [el.text.strip().replace("‪", "").replace("‬", "") for el in row.select("div.value-OxVAcLqi")]
-
-    reported = extract_row("Reported")
-    estimate = extract_row("Estimate")
-    surprise = extract_row("Surprise")
-
-    # Auf gleiche Länge kürzen
-    min_len = min(len(quarters), len(reported), len(estimate), len(surprise))
-    df = pd.DataFrame({
-        "Quarter": quarters[:min_len],
-        "Reported": reported[:min_len],
-        "Estimate": estimate[:min_len],
-        "Surprise": surprise[:min_len],
-    })
-
-    return df
+    return f"{formatted_date}\nEG: {eg}% / RG: {rg}%\nES: {es} / RS: {rs}\nSR: {sr}"
 
 # 📌 Streamlit UI
 st.set_page_config(layout="wide")
 st.title("📈 Aktienanalyse")
 
 with st.form("main_form"):
-    ticker = st.text_input("Ticker eingeben (z. B. AAPL)", "")
+    ticker = st.text_input("Ticker eingeben", "")
     submitted = st.form_submit_button("Daten abrufen")
 
 if submitted and ticker:
@@ -160,6 +150,6 @@ if submitted and ticker:
         result = get_earnings_data(ticker)
         st.text_area("Earnings Summary", result, height=225)
 
-    st.subheader(f"📊 TradingView Earnings History für {ticker}")
-    df = scrape_tradingview_earnings(ticker)
+    st.subheader(f"📊 TradingView Earnings für {ticker}")
+    df = scrape_tradingview_eps(ticker)
     st.dataframe(df, use_container_width=True)

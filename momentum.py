@@ -12,6 +12,19 @@ from streamlit.components.v1 import html
 st.set_page_config(layout="wide")
 st.title("Aktienanalyse")
 
+# Ampel: Trendanzeige für QQQ EMA9 vs EMA21
+qqq = yf.download("QQQ", period="3mo", interval="1d")
+qqq["EMA9"] = qqq["Close"].ewm(span=9).mean()
+qqq["EMA21"] = qqq["Close"].ewm(span=21).mean()
+ampel = "🔴"
+if (
+    qqq["EMA9"].iloc[-1] > qqq["EMA21"].iloc[-1]
+    and qqq["EMA9"].iloc[-1] > qqq["EMA9"].iloc[-2]
+    and qqq["EMA21"].iloc[-1] > qqq["EMA21"].iloc[-2]
+):
+    ampel = "🟢"
+st.markdown(f"<div style='position:absolute; right:30px; top:20px; font-size:40px'>{ampel}</div>", unsafe_allow_html=True)
+
 with st.form("main_form"):
     ticker = st.text_input("Ticker eingeben", "")
     submitted = st.form_submit_button("Daten abrufen")
@@ -104,9 +117,9 @@ def get_finhub_data(ticker, api_key):
         return pd.DataFrame([{"Hinweis": "Keine Finhub-Daten verfügbar"}])
 
     df = pd.DataFrame(data)
-    df = df.sort_values("period")
+    df = df.sort_values("period", ascending=False)  # neuestes Quartal zuerst
     df["EPS Actual"] = pd.to_numeric(df["actual"], errors="coerce")
-    df["EPS Change %"] = df["EPS Actual"].pct_change().round(2) * 100
+    df["EPS Change %"] = df["EPS Actual"].pct_change(-1).round(2) * 100
     df.rename(columns={"period": "Quarter"}, inplace=True)
     return df[["Quarter", "EPS Actual", "EPS Change %"]]
 
@@ -156,8 +169,7 @@ if submitted and ticker:
                 white-space: pre-wrap;
                 margin: 0;
                 padding: 0;
-                display: flex;
-                align-items: flex-start;
+                display: block;
             }
             </style>
             <div class='earnings-box'>
@@ -171,7 +183,7 @@ if submitted and ticker:
         st.dataframe(finhub_df)
 
         st.subheader("EPS Veränderung % (Quartal über Quartal)")
-        fig, ax = plt.subplots()
+        fig, ax = plt.subplots(figsize=(8, 2.5))
         ax.plot(finhub_df["Quarter"], finhub_df["EPS Change %"], marker="o")
         ax.set_ylabel("Change %")
         ax.set_xlabel("Quarter")

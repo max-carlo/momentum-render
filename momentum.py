@@ -5,6 +5,7 @@ import yfinance as yf
 import re
 import requests
 from playwright.sync_api import sync_playwright
+import pandas as pd
 
 # 📌 Streamlit Setup
 st.set_page_config(layout="wide")
@@ -96,6 +97,22 @@ def get_earnings_data(ticker):
 
     return f"{formatted_date}\nEG: {eg}% / RG: {rg}%\nES: {es} / RS: {rs}\nSR: {sr}"
 
+# 📌 Finnhub EPS (letzte Quartale)
+def get_finhub_earnings(ticker):
+    api_key = "cvue2t9r01qjg1397ls0cvue2t9r01qjg1397lsg"
+    url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&token={api_key}"
+    try:
+        res = requests.get(url)
+        res.raise_for_status()
+        data = res.json()
+        if not data:
+            return pd.DataFrame([["Keine Daten"]], columns=["Info"])
+        df = pd.DataFrame(data)
+        df["date"] = pd.to_datetime(df["period"]).dt.strftime("%Y-%m-%d")
+        return df[["date", "actual", "estimate"]].head(4).rename(columns={"actual": "Reported EPS", "estimate": "Estimate"})
+    except Exception as e:
+        return pd.DataFrame([[f"Fehler beim Laden der Finnhub-Daten: {e}"]], columns=["Info"])
+
 # 📌 Datenanzeige
 if submitted and ticker:
     ticker = ticker.strip().upper()
@@ -116,8 +133,12 @@ if submitted and ticker:
         earnings_info = get_earnings_data(ticker)
         st.text(earnings_info)
 
-    # 📌 Seeking Alpha als Link + (optional) iframe-Einbettung
-    st.header("📷 SeekingAlpha")
+    # 📌 Finnhub Earnings Table
+    st.header("📈 Finnhub: Letzte 4 Quartale (EPS)")
+    finhub_df = get_finhub_earnings(ticker)
+    st.dataframe(finhub_df)
+
+    # 📌 Seeking Alpha als Hinweis
+    st.header("📷 SeekingAlpha (optional)")
     sa_url = f"https://seekingalpha.com/symbol/{ticker}/earnings"
     st.markdown(f"🔗 [Zur SeekingAlpha Earnings-Seite]({sa_url})", unsafe_allow_html=True)
-    st.info("Falls das Einbetten blockiert ist, einfach dem obigen Link folgen.")

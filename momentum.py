@@ -11,7 +11,7 @@ from streamlit.components.v1 import html
 
 st.set_page_config(layout="wide")
 
-# Ampel: Trendanzeige für QQQ EMA9 vs EMA21
+# Ampelanzeige für QQQ
 qqq = yf.download("QQQ", period="3mo", interval="1d")
 qqq["EMA9"] = qqq["Close"].ewm(span=9).mean()
 qqq["EMA21"] = qqq["Close"].ewm(span=21).mean()
@@ -23,6 +23,7 @@ if (
 ):
     ampel = "🟢"
 
+# Style
 st.markdown("""
 <style>
 .ampel-box {
@@ -39,8 +40,9 @@ h1, .block-title, .matplot-title, .stHeader, .stMarkdown h2, .stMarkdown h3 {
     font-size: 0.875rem;
     font-family: sans-serif;
     line-height: 1.4;
+    max-height: 225px;
     overflow-y: auto;
-    height: 225px;
+    padding-right: 10px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -55,7 +57,6 @@ with col_ampel:
     st.markdown(f"<div class='ampel-box'>{ampel}</div>", unsafe_allow_html=True)
 
 # Finviz News
-
 def scrape_finviz_news(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}&p=d"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -75,8 +76,7 @@ def scrape_finviz_news(ticker):
             news_items.append((time_cell.text.strip(), link_tag.text.strip(), link_tag["href"], source.text.strip("()")))
     return news_items
 
-# EarningsWhispers Daten
-
+# EarningsWhispers
 def get_earnings_data(ticker):
     url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
     with sync_playwright() as p:
@@ -85,7 +85,6 @@ def get_earnings_data(ticker):
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_selector("#epsdate", timeout=60000)
             earnings_surprise = page.inner_text("#earnings .surprise")
             earnings_growth = page.inner_text("#earnings .growth")
             revenue_growth = page.inner_text("#revenue .growth")
@@ -94,7 +93,7 @@ def get_earnings_data(ticker):
             return f"Fehler beim Laden: {e}"
         browser.close()
 
-    def clean(t): return re.sub(r"[^\d\.-]", "", t)
+    def clean(t): return re.sub(r"[^\d\.\-]", "", t)
 
     try:
         info = yf.Ticker(ticker).info
@@ -110,10 +109,9 @@ def get_earnings_data(ticker):
         "Short Ratio": sr
     }
 
-# Finhub YoY EPS Change mit Vergleich zum Vorjahresquartal
-
+# Finhub EPS YoY
 def get_finhub_data_yoy(ticker, api_key):
-    url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&token={api_key}"
+    url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&limit=12&token={api_key}"
     res = requests.get(url)
     if res.status_code != 200:
         return pd.DataFrame([{"Hinweis": "Fehler beim Laden von Finhub"}])
@@ -127,10 +125,10 @@ def get_finhub_data_yoy(ticker, api_key):
     df["period"] = pd.to_datetime(df["period"])
     df["year"] = df["period"].dt.year
     df["quarter"] = df["period"].dt.quarter
+    df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)
 
     df_yoy = df.copy()
     df_yoy.set_index(["quarter", "year"], inplace=True)
-
     changes = []
     for idx, row in df.iterrows():
         q, y = row["quarter"], row["year"]
@@ -145,9 +143,9 @@ def get_finhub_data_yoy(ticker, api_key):
         changes.append(change)
 
     df["YoY Change %"] = changes
-    df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)
     return df[["Quarter", "EPS Actual", "YoY Change %"]]
 
+# Anzeige
 if submitted and ticker:
     ticker = ticker.strip().upper()
     api_key = "cvue2t9r01qjg1397ls0cvue2t9r01qjg1397lsg"
@@ -157,7 +155,7 @@ if submitted and ticker:
     with col1:
         st.header("News")
         news_items = scrape_finviz_news(ticker)
-        news_html = """<div class='finviz-scroll'>"""
+        news_html = "<div class='finviz-scroll'>"
         for item in news_items:
             if isinstance(item, str):
                 st.error(item)
@@ -165,7 +163,7 @@ if submitted and ticker:
                 time, title, url, src = item
                 news_html += f"<div><strong>{time}</strong> — <a href='{url}' target='_blank'>{title}</a> ({src})</div>"
         news_html += "</div>"
-        html(news_html)
+        st.markdown(news_html, unsafe_allow_html=True)
 
     with col2:
         st.header("Last Earnings")
@@ -173,7 +171,7 @@ if submitted and ticker:
         if isinstance(data, str):
             st.error(data)
         else:
-            html_block = """<div class='earnings-box'>"""
+            html_block = "<div class='earnings-box'>"
             for key, value in data.items():
                 html_block += f"<div><strong>{key}</strong>: {value}</div>"
             html_block += "</div>"
@@ -184,6 +182,7 @@ if submitted and ticker:
     df_eps = get_finhub_data_yoy(ticker, api_key)
     with col3:
         st.dataframe(df_eps)
+
     with col4:
         st.subheader("EPS Veränderung % (YoY)")
         fig, ax = plt.subplots(figsize=(4, 2))
@@ -195,5 +194,5 @@ if submitted and ticker:
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
-    # Link zu Seeking Alpha Earnings Page
-    st.markdown(f"[Zur Earnings-Seite auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)")
+    # Link zu Seeking Alpha Earnings
+    st.markdown(f"[→ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)")

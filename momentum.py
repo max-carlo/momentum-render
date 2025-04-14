@@ -57,6 +57,7 @@ with col_ampel:
     st.markdown(f"<div class='ampel-box'>{ampel}</div>", unsafe_allow_html=True)
 
 # Finviz News
+
 def scrape_finviz_news(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}&p=d"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -76,7 +77,8 @@ def scrape_finviz_news(ticker):
             news_items.append((time_cell.text.strip(), link_tag.text.strip(), link_tag["href"], source.text.strip("()")))
     return news_items
 
-# EarningsWhispers
+# EarningsWhispers (robust)
+
 def get_earnings_data(ticker):
     url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
     with sync_playwright() as p:
@@ -85,15 +87,21 @@ def get_earnings_data(ticker):
         page = context.new_page()
         try:
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            earnings_surprise = page.inner_text("#earnings .surprise")
+            page.wait_for_selector("#earnings .growth", timeout=15000)
+            page.wait_for_selector("#earnings .surprise", timeout=15000)
+            page.wait_for_selector("#revenue .growth", timeout=15000)
+            page.wait_for_selector("#revenue .surprise", timeout=15000)
+
             earnings_growth = page.inner_text("#earnings .growth")
+            earnings_surprise = page.inner_text("#earnings .surprise")
             revenue_growth = page.inner_text("#revenue .growth")
             revenue_surprise = page.inner_text("#revenue .surprise")
-        except Exception as e:
-            return f"Fehler beim Laden: {e}"
-        browser.close()
+        except Exception:
+            earnings_growth = earnings_surprise = revenue_growth = revenue_surprise = "N/A"
+        finally:
+            browser.close()
 
-    def clean(t): return re.sub(r"[^\d\.\-]", "", t)
+    def clean(t): return re.sub(r"[^\d\.-]", "", t)
 
     try:
         info = yf.Ticker(ticker).info
@@ -109,7 +117,8 @@ def get_earnings_data(ticker):
         "Short Ratio": sr
     }
 
-# Finhub EPS YoY
+# Finhub EPS YoY (optional, falls du wieder einbauen willst)
+
 def get_finhub_data_yoy(ticker, api_key):
     url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&limit=12&token={api_key}"
     res = requests.get(url)
@@ -145,7 +154,8 @@ def get_finhub_data_yoy(ticker, api_key):
     df["YoY Change %"] = changes
     return df[["Quarter", "EPS Actual", "YoY Change %"]]
 
-# Anzeige
+# Anzeige nach Eingabe
+
 if submitted and ticker:
     ticker = ticker.strip().upper()
     api_key = "cvue2t9r01qjg1397ls0cvue2t9r01qjg1397lsg"
@@ -182,7 +192,6 @@ if submitted and ticker:
     df_eps = get_finhub_data_yoy(ticker, api_key)
     with col3:
         st.dataframe(df_eps)
-
     with col4:
         st.subheader("EPS Veränderung % (YoY)")
         fig, ax = plt.subplots(figsize=(4, 2))
@@ -194,5 +203,4 @@ if submitted and ticker:
         plt.xticks(rotation=45)
         st.pyplot(fig)
 
-    # Link zu Seeking Alpha Earnings
     st.markdown(f"[→ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)")

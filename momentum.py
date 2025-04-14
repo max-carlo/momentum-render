@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 from streamlit.components.v1 import html
 
 st.set_page_config(layout="wide")
-st.title("Aktienanalyse")
 
 # Ampel: Trendanzeige für QQQ EMA9 vs EMA21
 qqq = yf.download("QQQ", period="3mo", interval="1d")
@@ -23,13 +22,28 @@ if (
     and qqq["EMA21"].iloc[-1] > qqq["EMA21"].iloc[-2]
 ):
     ampel = "🟢"
-st.markdown(f"<div style='position:fixed; right:30px; top:20px; font-size:40px; z-index:100'>{ampel}</div>", unsafe_allow_html=True)
+st.markdown(f"""
+<style>
+.ampel-box {{
+    position: absolute;
+    top: 18px;
+    left: 20px;
+    font-size: 72px;
+    line-height: 1;
+    z-index: 10;
+}}
+</style>
+<div class='ampel-box'>{ampel}</div>
+""", unsafe_allow_html=True)
+
+st.title("Aktienanalyse")
 
 with st.form("main_form"):
     ticker = st.text_input("Ticker eingeben", "")
     submitted = st.form_submit_button("Daten abrufen")
 
 # Finviz News
+
 def scrape_finviz_news(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}&p=d"
     headers = {
@@ -63,6 +77,7 @@ def scrape_finviz_news(ticker):
     return news_items
 
 # EarningsWhispers
+
 def get_earnings_data(ticker):
     url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
     with sync_playwright() as p:
@@ -117,7 +132,7 @@ def get_finhub_data(ticker, api_key):
         return pd.DataFrame([{"Hinweis": "Keine Finhub-Daten verfügbar"}])
 
     df = pd.DataFrame(data)
-    df = df.sort_values("period", ascending=False)  # neuestes Quartal zuerst
+    df = df.sort_values("period", ascending=False)
     df["EPS Actual"] = pd.to_numeric(df["actual"], errors="coerce")
     df["EPS Change %"] = df["EPS Actual"].pct_change(-1).round(2) * 100
     df.rename(columns={"period": "Quarter"}, inplace=True)
@@ -161,35 +176,45 @@ if submitted and ticker:
         if isinstance(ew_data, str):
             st.error(ew_data)
         else:
-            st.markdown("""
+            earnings_html = """
             <style>
             .earnings-box {
                 height: 225px;
                 overflow-y: auto;
                 white-space: pre-wrap;
-                margin: 0;
+                font-size: 0.875rem;
                 padding: 0;
-                display: block;
+                margin: 0;
             }
             </style>
             <div class='earnings-box'>
-            """, unsafe_allow_html=True)
-            st.markdown("<pre>" + "\n".join([f"{key}: {value}" for key, value in ew_data.items()]) + "</pre>", unsafe_allow_html=True)
-            st.markdown("</div>", unsafe_allow_html=True)
+            """ + "".join([f"<div><strong>{key}</strong>: {value}</div>" for key, value in ew_data.items()]) + "</div>"
+            st.markdown(earnings_html, unsafe_allow_html=True)
 
-    st.header("Historische Earnings")
+    st.markdown("""
+    <style>
+    .block-title {
+        font-size: 1.5rem;
+        font-weight: 600;
+        margin-top: 2rem;
+    }
+    </style>
+    <div class='block-title'>Historische Earnings</div>
+    """, unsafe_allow_html=True)
     finhub_df = get_finhub_data(ticker, api_key)
     if not finhub_df.empty and "EPS Actual" in finhub_df.columns:
         col3, col4 = st.columns([1, 1])
         with col3:
             st.dataframe(finhub_df)
         with col4:
-            st.subheader("EPS Veränderung % (Quartal über Quartal)")
-            fig, ax = plt.subplots(figsize=(4, 2.5))
+            st.markdown("""
+            <style>.matplot-title { font-size: 1rem; font-weight: bold; }</style>
+            <div class='matplot-title'>EPS Veränderung % (Quartal über Quartal)</div>
+            """, unsafe_allow_html=True)
+            fig, ax = plt.subplots(figsize=(4, 2))
             ax.plot(finhub_df["Quarter"], finhub_df["EPS Change %"], marker="o")
             ax.set_ylabel("Change %")
             ax.set_xlabel("Quarter")
-            ax.set_title("EPS Change")
             ax.grid(True)
             plt.xticks(rotation=45)
             st.pyplot(fig)

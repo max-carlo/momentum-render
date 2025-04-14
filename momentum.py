@@ -72,10 +72,9 @@ def get_earnings_data(ticker):
         sr = "N/A"
 
     return (
-        f"Earnings Date: {formatted_date}\n"
         f"Earnings Growth: {clean(earnings_growth)}%\n"
-        f"Revenue Growth: {clean(revenue_growth)}%\n"
         f"Earnings Surprise: {signed(earnings_surprise)}\n"
+        f"Revenue Growth: {clean(revenue_growth)}%\n"
         f"Revenue Surprise: {signed(revenue_surprise)}\n"
         f"Short Ratio: {sr}"
     )
@@ -88,8 +87,9 @@ def get_finhub_data(ticker, api_key):
         return pd.DataFrame(["Fehler beim Laden von Finhub"], columns=["Fehler"])
     data = res.json()
     df = pd.DataFrame(data)
-    if df.empty:
-        return pd.DataFrame(["Keine Finhub-Daten verf\u00fcgbar"], columns=["Hinweis"])
+    df = df.dropna(subset=["actual"])
+    if df.empty or len(df) < 5:
+        return pd.DataFrame(["Nicht genügend Daten für Change %"], columns=["Hinweis"])
     df = df.sort_values("period")
     df["actual"] = pd.to_numeric(df["actual"], errors="coerce")
     df["prior_year"] = df["actual"].shift(4)
@@ -133,7 +133,18 @@ if submitted and ticker:
 
     with col2:
         st.header("Last Earnings")
-        st.markdown("<div style='height: 225px; overflow-y: auto; white-space: pre-wrap;'>", unsafe_allow_html=True)
+        st.markdown("""
+        <style>
+        .earnings-box {
+            height: 225px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin: 0;
+            padding: 0;
+        }
+        </style>
+        <div class='earnings-box'>
+        """, unsafe_allow_html=True)
         st.text(get_earnings_data(ticker))
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -153,4 +164,4 @@ if submitted and ticker:
         plt.xticks(rotation=45)
         st.pyplot(fig)
     else:
-        st.warning("Keine Finhub-Daten gefunden.")
+        st.warning("Keine Finhub-Daten gefunden oder nicht genügend Daten für Change %.")

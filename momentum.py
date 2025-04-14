@@ -9,13 +9,13 @@ from playwright.sync_api import sync_playwright
 import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
-st.title("📈 Aktienanalyse")
+st.title("Aktienanalyse")
 
 with st.form("main_form"):
     ticker = st.text_input("Ticker eingeben", "")
     submitted = st.form_submit_button("Daten abrufen")
 
-# 📌 Finviz News
+# Finviz News
 def scrape_finviz_news(ticker):
     url = f"https://finviz.com/quote.ashx?t={ticker}&p=d"
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -36,7 +36,7 @@ def scrape_finviz_news(ticker):
             news_items.append((time_cell.text.strip(), link_tag.text.strip(), link_tag["href"], source.text.strip("()")))
     return news_items
 
-# 📌 EarningsWhispers
+# EarningsWhispers
 def get_earnings_data(ticker):
     url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
     with sync_playwright() as p:
@@ -79,7 +79,7 @@ def get_earnings_data(ticker):
         f"Short Ratio: {sr}"
     )
 
-# 📌 Finhub Earnings
+# Finhub Earnings
 def get_finhub_data(ticker, api_key):
     url = f"https://finnhub.io/api/v1/stock/earnings?symbol={ticker}&token={api_key}"
     res = requests.get(url)
@@ -88,50 +88,68 @@ def get_finhub_data(ticker, api_key):
     data = res.json()
     df = pd.DataFrame(data)
     if df.empty:
-        return pd.DataFrame([["Keine Finhub-Daten verfügbar"]], columns=["Hinweis"])
+        return pd.DataFrame([["Keine Finhub-Daten verf\xfcgbar"]], columns=["Hinweis"])
     df = df.head(12).copy()
-    df["Period"] = df["period"].str.replace("-", "/")
-    df["Change %"] = df["actual"].pct_change(4) * 100
+    df["actual"] = pd.to_numeric(df["actual"], errors="coerce")
+    df = df.sort_values("period")
+    df["Change %"] = df["actual"].pct_change(periods=4) * 100
     df["Change %"] = df["Change %"].round(2)
+    df["Period"] = df["period"].str.replace("-", "/")
     df = df[["Period", "actual", "Change %"]]
     df.rename(columns={"actual": "Reported EPS"}, inplace=True)
     return df
 
-# 📌 Anzeige
+# Anzeige
 if submitted and ticker:
     ticker = ticker.strip().upper()
     col1, col2 = st.columns(2)
 
     with col1:
-        st.header("📰 Finviz News")
+        st.header("News")
         news_items = scrape_finviz_news(ticker)
-        with st.container():
-            st.markdown("<div style='height:370px; overflow:auto;'>", unsafe_allow_html=True)
-            for item in news_items:
-                if isinstance(item, str):
-                    st.error(item)
-                else:
-                    time, title, url, src = item
-                    st.markdown(f"**{time}** — [{title}]({url}) ({src})")
-            st.markdown("</div>", unsafe_allow_html=True)
+
+        st.markdown("""
+        <style>
+        .finviz-item:nth-child(even) {
+            background-color: rgba(200, 200, 200, 0.1);
+        }
+        .finviz-scroll {
+            height: 225px;
+            overflow-y: auto;
+            padding-top: 0;
+            margin-top: 0;
+        }
+        </style>
+        <div class="finviz-scroll">
+        """, unsafe_allow_html=True)
+
+        for idx, item in enumerate(news_items):
+            if isinstance(item, str):
+                st.error(item)
+            else:
+                time, title, url, src = item
+                st.markdown(f"<div class='finviz-item'><strong>{time}</strong> — <a href='{url}' target='_blank'>{title}</a> ({src})</div>", unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
     with col2:
-        st.header("📊 EarningsWhispers")
+        st.header("Last Earnings")
+        st.markdown("<div style='height: 225px; overflow-y: auto; white-space: pre-wrap;'>", unsafe_allow_html=True)
         st.text(get_earnings_data(ticker))
+        st.markdown("</div>", unsafe_allow_html=True)
 
-    st.header("📈 Historische Earnings – Finhub")
+    st.header("Historische Earnings")
     api_key = "cvue2t9r01qjg1397ls0cvue2t9r01qjg1397lsg"
     finhub_df = get_finhub_data(ticker, api_key)
     if not finhub_df.empty and "Reported EPS" in finhub_df.columns:
         st.dataframe(finhub_df)
 
-        # Diagramm für Change %
-        st.subheader("EPS Veränderung (YoY %)")
+        st.subheader("EPS Ver\xe4nderung (YoY %)")
         fig, ax = plt.subplots()
         ax.plot(finhub_df["Period"], finhub_df["Change %"], marker="o")
         ax.set_ylabel("Change %")
         ax.set_xlabel("Period")
-        ax.set_title("Year-over-Year Veränderung von Reported EPS")
+        ax.set_title("Year-over-Year Ver\xe4nderung von Reported EPS")
         ax.grid(True)
         plt.xticks(rotation=45)
         st.pyplot(fig)

@@ -23,7 +23,7 @@ if (
     and qqq["EMA21"].iloc[-1] > qqq["EMA21"].iloc[-2]
 ):
     ampel = "🟢"
-st.markdown(f"<div style='position:absolute; right:30px; top:20px; font-size:40px'>{ampel}</div>", unsafe_allow_html=True)
+st.markdown(f"<div style='position:fixed; right:30px; top:20px; font-size:40px; z-index:100'>{ampel}</div>", unsafe_allow_html=True)
 
 with st.form("main_form"):
     ticker = st.text_input("Ticker eingeben", "")
@@ -180,16 +180,18 @@ if submitted and ticker:
     st.header("Historische Earnings")
     finhub_df = get_finhub_data(ticker, api_key)
     if not finhub_df.empty and "EPS Actual" in finhub_df.columns:
-        st.dataframe(finhub_df)
-
-        st.subheader("EPS Veränderung % (Quartal über Quartal)")
-        fig, ax = plt.subplots(figsize=(8, 2.5))
-        ax.plot(finhub_df["Quarter"], finhub_df["EPS Change %"], marker="o")
-        ax.set_ylabel("Change %")
-        ax.set_xlabel("Quarter")
-        ax.set_title("EPS Change % nach Quartal")
-        ax.grid(True)
-        plt.xticks(rotation=45)
-        st.pyplot(fig)
+        col3, col4 = st.columns([1, 1])
+        with col3:
+            st.dataframe(finhub_df)
+        with col4:
+            st.subheader("EPS Veränderung % (Quartal über Quartal)")
+            fig, ax = plt.subplots(figsize=(4, 2.5))
+            ax.plot(finhub_df["Quarter"], finhub_df["EPS Change %"], marker="o")
+            ax.set_ylabel("Change %")
+            ax.set_xlabel("Quarter")
+            ax.set_title("EPS Change")
+            ax.grid(True)
+            plt.xticks(rotation=45)
+            st.pyplot(fig)
     else:
         st.warning("Keine Finhub-Daten gefunden oder nicht genügend Daten für Change %.")

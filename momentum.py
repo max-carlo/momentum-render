@@ -1,63 +1,38 @@
 import streamlit as st
 from bs4 import BeautifulSoup
-from datetime import datetime
 import pandas as pd
 import yfinance as yf
-import re
-import requests
+import re, requests
 from playwright.sync_api import sync_playwright
 import matplotlib.pyplot as plt
 from streamlit.components.v1 import html
 
 st.set_page_config(layout="wide")
 
-# =======================
-# AMPel‑Trend (QQQ EMA9 vs EMA21)
-# =======================
+# ------------------- Ampel -------------------
 qqq = yf.download("QQQ", period="3mo", interval="1d")
 qqq["EMA9"] = qqq["Close"].ewm(span=9).mean()
 qqq["EMA21"] = qqq["Close"].ewm(span=21).mean()
-ampel = "🔴"
-if (
+ampel = "🟢" if (
     qqq["EMA9"].iloc[-1] > qqq["EMA21"].iloc[-1]
     and qqq["EMA9"].iloc[-1] > qqq["EMA9"].iloc[-2]
     and qqq["EMA21"].iloc[-1] > qqq["EMA21"].iloc[-2]
-):
-    ampel = "🟢"
+) else "🔴"
 
-# =======================
-# CSS‑Styling
-# =======================
+# ------------------- Styling -------------------
 st.markdown(
     """
     <style>
-    .ampel-box {
-        font-size: 80px;
-        line-height: 1;
-        text-align: right;
-        padding-right: 20px;
-    }
-    h1, .block-title, .matplot-title, .stHeader, .stMarkdown h2, .stMarkdown h3 {
-        font-size: 1.5rem !important;
-        font-weight: 600;
-    }
-    .finviz-scroll, .earnings-box {
-        font-size: 0.875rem;
-        font-family: sans-serif;
-        line-height: 1.4;
-        max-height: 225px;
-        overflow-y: auto;
-        padding-right: 10px;
-    }
+    .ampel-box{font-size:80px;line-height:1;text-align:right;padding-right:20px}
+    h1,.block-title,.matplot-title,.stHeader,.stMarkdown h2,.stMarkdown h3{font-size:1.5rem!important;font-weight:600}
+    .finviz-scroll,.earnings-box{font-size:.875rem;font-family:sans-serif;line-height:1.4;max-height:225px;overflow-y:auto;padding-right:10px}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# =======================
-# Eingabe + Ampel‑Spalten
-# =======================
-col_input, col_ampel = st.columns([4, 1])
+# ------------------- Eingabe -------------------
+col_input, col_ampel = st.columns([4,1])
 with col_input:
     st.title("Aktienanalyse")
     with st.form("main_form"):
@@ -66,165 +41,114 @@ with col_input:
 with col_ampel:
     st.markdown(f"<div class='ampel-box'>{ampel}</div>", unsafe_allow_html=True)
 
-# =======================
-# Finviz‑News‑Scraper
-# =======================
+# ------------------- Finviz -------------------
 
-def scrape_finviz_news(ticker: str):
-    url = f"https://finviz.com/quote.ashx?t={ticker}&p=d"
-    headers = {"User-Agent": "Mozilla/5.0"}
+def scrape_finviz_news(tic:str):
+    url=f"https://finviz.com/quote.ashx?t={tic}&p=d"
     try:
-        res = requests.get(url, headers=headers, timeout=15)
-        res.raise_for_status()
+        r=requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=15)
+        r.raise_for_status()
     except Exception as e:
-        return [f"Fehler beim Laden der Finviz-Seite: {e}"]
-
-    soup = BeautifulSoup(res.text, "html.parser")
-    rows = soup.select("table.fullview-news-outer tr")
-    news_items = []
-    for row in rows:
-        td_time = row.find("td", width="130")
-        a_title = row.find("a", class_="tab-link-news")
-        span_src = row.find("span")
-        if td_time and a_title and span_src:
-            news_items.append(
-                (
-                    td_time.text.strip(),
-                    a_title.text.strip(),
-                    a_title["href"],
-                    span_src.text.strip("()"),
-                )
-            )
-    return news_items
-
-# =======================
-# EarningsWhispers‑Scraper (robust)
-# =======================
-
-def get_earnings_data(ticker: str):
-    url = f"https://www.earningswhispers.com/epsdetails/{ticker}"
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            for sel in [
-                "#earnings .growth",
-                "#earnings .surprise",
-                "#revenue .growth",
-                "#revenue .surprise",
-            ]:
-                page.wait_for_selector(sel, timeout=15000)
-
-            earnings_growth = page.inner_text("#earnings .growth")
-            earnings_surprise = page.inner_text("#earnings .surprise")
-            revenue_growth = page.inner_text("#revenue .growth")
-            revenue_surprise = page.inner_text("#revenue .surprise")
-        except Exception:
-            earnings_growth = earnings_surprise = revenue_growth = revenue_surprise = "N/A"
-        finally:
-            browser.close()
-
-    def clean(txt):
-        return re.sub(r"[^\d\.-]", "", txt)
-
-    try:
-        info = yf.Ticker(ticker).info
-        sr_raw = info.get("shortRatio")
-        sr = str(round(sr_raw, 2)) if isinstance(sr_raw, (int, float)) else "N/A"
-    except:
-        sr = "N/A"
-
-    return {
-        "Earnings Growth": f"{clean(earnings_growth)}%",
-        "Earnings Surprise": clean(earnings_surprise),
-        "Revenue Growth": f"{clean(revenue_growth)}%",
-        "Revenue Surprise": clean(revenue_surprise),
-        "Short Ratio": sr,
-    }
-
-# =======================
-# Zacks‑Scraper für Quartals‑EPS + YoY
-# =======================
-
-def get_zacks_eps_yoy(ticker: str):
-    """Scrape Zacks earnings table and compute YoY change."""
-    url = f"https://www.zacks.com/stock/research/{ticker}/earnings-calendar?tab=transcript&icid=quote-eps-quote_nav_tracking-zcom-left_subnav_quote_navbar-earnings_transcripts"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    try:
-        res = requests.get(url, headers=headers, timeout=20)
-        res.raise_for_status()
-    except Exception as e:
-        return pd.DataFrame([{"Hinweis": f"Zacks nicht erreichbar: {e}"}])
-
-    soup = BeautifulSoup(res.text, "html.parser")
-    table = soup.find("table", id="earnings_announcements_earnings_table")
-    if table is None:
-        return pd.DataFrame([{"Hinweis": "Kein Earnings‑Table auf Zacks gefunden."}])
-
-    rows = table.select("tbody tr")
-    data = []
+        return [str(e)]
+    soup=BeautifulSoup(r.text,"html.parser")
+    rows=soup.select("table.fullview-news-outer tr")
+    out=[]
     for r in rows:
-        cells = [c.get_text(strip=True) for c in r.find_all("td")]
-        if len(cells) < 5:
-            continue
-        period = cells[1]  # e.g. "2024-03-31" (Period Ending)
-        reported_eps = cells[3]  # Reported EPS
+        td=r.find("td",width="130");a=r.find("a",class_="tab-link-news");sp=r.find("span")
+        if td and a and sp:
+            out.append((td.text.strip(),a.text.strip(),a["href"],sp.text.strip("()")))
+    return out
+
+# ------------------- EarningsWhispers -------------------
+
+def get_earnings_data(tic:str):
+    url=f"https://www.earningswhispers.com/epsdetails/{tic}"
+    with sync_playwright() as p:
+        br=p.chromium.launch(headless=True);pg=br.new_page()
         try:
-            eps_val = float(re.sub(r"[^\d\.-]", "", reported_eps))
-        except ValueError:
-            eps_val = None
-        data.append((period, eps_val))
+            pg.goto(url,wait_until="domcontentloaded",timeout=60000)
+            for sel in ["#earnings .growth","#earnings .surprise","#revenue .growth","#revenue .surprise"]:
+                pg.wait_for_selector(sel,timeout=15000)
+            eg=pg.inner_text("#earnings .growth");es=pg.inner_text("#earnings .surprise")
+            rg=pg.inner_text("#revenue .growth");rs=pg.inner_text("#revenue .surprise")
+        except Exception:
+            eg=es=rg=rs="N/A"
+        br.close()
+    cl=lambda t:re.sub(r"[^\d\.-]","",t)
+    try:
+        sr_raw=yf.Ticker(tic).info.get("shortRatio");sr=str(round(sr_raw,2)) if isinstance(sr_raw,(int,float)) else "N/A"
+    except: sr="N/A"
+    return {"Earnings Growth":f"{cl(eg)}%","Earnings Surprise":cl(es),"Revenue Growth":f"{cl(rg)}%","Revenue Surprise":cl(rs),"Short Ratio":sr}
 
-    if not data:
-        return pd.DataFrame([{"Hinweis": "Zacks lieferte keine Daten."}])
+# ------------------- Zacks EPS YoY -------------------
 
-    df = pd.DataFrame(data, columns=["Period", "EPS Actual"])
-    df["Period"] = pd.to_datetime(df["Period"])
-    df["year"] = df["Period"].dt.year
-    df["quarter"] = df["Period"].dt.quarter
-    df.sort_values("Period", ascending=False, inplace=True)
+def get_zacks_eps_yoy(tic:str):
+    url=f"https://www.zacks.com/stock/research/{tic}/earnings-calendar?tab=transcript&icid=quote-eps-quote_nav_tracking-zcom-left_subnav_quote_navbar-earnings_transcripts"
+    try:
+        r=requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=20);r.raise_for_status()
+    except Exception as e:
+        return pd.DataFrame([{"Hinweis":str(e)}])
+    soup=BeautifulSoup(r.text,"html.parser")
+    tbl=soup.find("table",id="earnings_announcements_earnings_table")
+    if not tbl:
+        return pd.DataFrame([{"Hinweis":"Keine Daten von Zacks"}])
+    rows=tbl.select("tbody tr");data=[]
+    for tr in rows:
+        tds=[td.get_text(strip=True) for td in tr.find_all("td")]
+        if len(tds)<5:continue
+        period,eps=tds[1],tds[3]
+        try:eps_val=float(re.sub(r"[^\d\.-]","",eps))
+        except:eps_val=None
+        data.append((period,eps_val))
+    df=pd.DataFrame(data,columns=["Period","EPS Actual"])
+    df["Period"]=pd.to_datetime(df["Period"]);df["year"]=df["Period"].dt.year;df["quarter"]=df["Period"].dt.quarter
+    df.sort_values("Period",ascending=False,inplace=True)
+    df["YoY Change %"]=None
+    for idx,row in df.iterrows():
+        q,y=row["quarter"],row["year"]
+        prev=df[(df["quarter"]==q)&(df["year"]==y-1)]
+        if not prev.empty and pd.notnull(prev.iloc[0]["EPS Actual"]) and prev.iloc[0]["EPS Actual"]!=0:
+            df.at[idx,"YoY Change %"]=round((row["EPS Actual"]-prev.iloc[0]["EPS Actual"])/abs(prev.iloc[0]["EPS Actual"])*100,2)
+    df["Quarter"]="Q"+df["quarter"].astype(str)+" "+df["year"].astype(str)
+    return df[["Quarter","EPS Actual","YoY Change %"]]
 
-    # YoY Berechnung: gleiches Quartal Vorjahr
-    df["YoY Change %"] = None
-    for idx, row in df.iterrows():
-        cur_q, cur_y = row["quarter"], row["year"]
-        match = df[(df["quarter"] == cur_q) & (df["year"] == cur_y - 1)]
-        if not match.empty and pd.notnull(match.iloc[0]["EPS Actual"]) and match.iloc[0]["EPS Actual"] != 0:
-            prev_eps = match.iloc[0]["EPS Actual"]
-            df.at[idx, "YoY Change %"] = round((row["EPS Actual"] - prev_eps) / abs(prev_eps) * 100, 2)
-
-    df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)
-    return df[["Quarter", "EPS Actual", "YoY Change %"]]
-
-# =======================
-# Anzeige nach Eingabe
-# =======================
+# ------------------- App-Ausgabe -------------------
 if submitted and ticker:
-    ticker = ticker.strip().upper()
+    ticker=ticker.upper()
 
-    col1, col2 = st.columns(2)
-
-    # ---------- Finviz ----------
-    with col1:
+    c1,c2=st.columns(2)
+    # Finviz
+    with c1:
         st.header("News")
-        news_items = scrape_finviz_news(ticker)
-        news_html = "<div class='finviz-scroll'>"
-        for item in news_items:
-            if isinstance(item, str):
-                st.error(item)
-            else:
-                time, title, url, src = item
-                news_html += f"<div><strong>{time}</strong> — <a href='{url}' target='_blank'>{title}</a> ({src})</div>"
-        news_html += "</div>"
-        st.markdown(news_html, unsafe_allow_html=True)
+        news=scrape_finviz_news(ticker)
+        html_news="<div class='finviz-scroll'>"+"".join([
+            f"<div><strong>{t}</strong> — <a href='{u}' target='_blank'>{ttl}</a> ({src})</div>" if not isinstance(item,str) else item
+            for (t,ttl,u,src) in ([item] if isinstance(item,str) else [item] )
+            for item in [item]  # flatten
+        ])+"</div>"
+        st.markdown(html_news,unsafe_allow_html=True)
 
-    # ---------- EarningsWhispers ----------
-    with col2:
+    # EarningsWhispers
+    with c2:
         st.header("Last Earnings")
-        ew = get_earnings_data(ticker)
-        if isinstance(ew, str):
-            st.error(ew)
+        ew=get_earnings_data(ticker)
+        if isinstance(ew,str):st.error(ew)
         else:
-            block = "<div class='earnings-box'>" + "".join(
-                [f"<div><strong>{k}</strong>: {v}</
+            block="<div class='earnings-box'>"+"".join([f"<div><strong>{k}</strong>: {v}</div>" for k,v in ew.items()])+"</div>"
+            st.markdown(block,unsafe_allow_html=True)
+
+    # Zacks EPS
+    st.header("Historische Earnings")
+    d1,d2=st.columns([1,1])
+    df_eps=get_zacks_eps_yoy(ticker)
+    with d1:
+        st.dataframe(df_eps)
+    with d2:
+        st.subheader("EPS Veränderung % (YoY)")
+        fig,ax=plt.subplots(figsize=(4,2))
+        ax.plot(df_eps["Quarter"],df_eps["YoY Change %"],marker="o")
+        ax.set_ylabel("Change %",fontsize=8);ax.set_xlabel("Quarter",fontsize=8)
+        ax.tick_params(labelsize=8);ax.grid(True);plt.xticks(rotation=45)
+        st.pyplot(fig)
+
+    st.markdown(f"[→ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{

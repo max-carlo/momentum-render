@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 st.set_page_config(layout="wide")
 
 # 👉 Alpha‑Vantage‑API‑Key (kostenlos)
-AV_KEY = "KEEVSBBKLMOHT4BJ"  # gerne in st.secrets auslagern
+AV_KEY = "KEEVSBBKLMOHT4BJ"  # idealerweise in st.secrets auslagern
 
 # ============================================================
 # Ampel basierend auf QQQ‑EMAs
@@ -104,16 +104,23 @@ def get_earnings_data(tic: str):
     }
 
 # ============================================================
-# Alpha‑Vantage EPS (20 Quartale) + YoY
+# Alpha‑Vantage EPS (20 Quartale) + YoY  (mit Rate‑Limit‑Check + Cache)
 # ============================================================
 
+@st.cache_data(ttl=60)
 def get_av_eps_yoy(tic: str, key: str):
     url = f"https://www.alphavantage.co/query?function=EARNINGS&symbol={tic}&apikey={key}"
     try:
         data = requests.get(url, timeout=20).json()
-        q = pd.DataFrame(data["quarterlyEarnings"])
     except Exception as e:
         return pd.DataFrame([{"Quarter": "-", "EPS Actual": None, "YoY Change %": None, "Hinweis": str(e)}])
+
+    # --- Rate‑Limit oder Fehler‑Handling ---
+    if "quarterlyEarnings" not in data:
+        msg = data.get("Note") or data.get("Information") or "AlphaVantage‑Fehler"
+        return pd.DataFrame([{"Quarter": "-", "EPS Actual": None, "YoY Change %": None, "Hinweis": msg}])
+
+    q = pd.DataFrame(data["quarterlyEarnings"])
     if q.empty:
         return pd.DataFrame([{"Quarter": "-", "EPS Actual": None, "YoY Change %": None, "Hinweis": "Keine AV‑Daten"}])
 
@@ -159,7 +166,7 @@ if submitted and ticker:
             st.markdown(block, unsafe_allow_html=True)
 
     # ---------- Alpha‑Vantage EPS ----------
-    st.header("Historische Earnings (Alpha Vantage)")
+    st.header("Historische Earnings (Alpha Vantage)")
     d1, d2 = st.columns([1, 1])
     eps_df = get_av_eps_yoy(ticker, AV_KEY)
 
@@ -168,13 +175,4 @@ if submitted and ticker:
 
     with d2:
         if "Quarter" in eps_df.columns and eps_df["YoY Change %"].notna().any():
-            st.subheader("EPS Veränderung % (YoY)")
-            fig, ax = plt.subplots(figsize=(4, 2))
-            ax.plot(eps_df["Quarter"], eps_df["YoY Change %"], marker="o")
-            ax.set_ylabel("Change %", fontsize=8); ax.set_xlabel("Quarter", fontsize=8)
-            ax.tick_params(labelsize=8); ax.grid(True); plt.xticks(rotation=45)
-            st.pyplot(fig)
-        else:
-            st.info("YoY‑Daten nicht verfügbar (Alpha Vantage Limit erreicht?)")
-
-    st.markdown(f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)")
+            st.subheader("EPS Veränderung %

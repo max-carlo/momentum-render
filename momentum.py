@@ -160,9 +160,11 @@ if submitted and ticker:
         if isinstance(ew, str):
             st.error(ew)
         else:
-            block = "<div class='earnings-box'>" + "".join(
-                f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items()
-            ) + "</div>"
+            block = (
+                "<div class='earnings-box'>" + "".join(
+                    f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items()
+                ) + "</div>"
+            )
             st.markdown(block, unsafe_allow_html=True)
 
     # ---------- Alpha‑Vantage EPS ----------
@@ -175,4 +177,6 @@ if submitted and ticker:
 
     with d2:
         if "Quarter" in eps_df.columns and eps_df["YoY Change %"].notna().any():
-            st.subheader("EPS Veränderung %
+            st.subheader("EPS Veränderung % (YoY)")
+            fig, ax = plt.subplots(figsize=(4, 2))
+            ax.plot(eps_df["Quarter"], eps_df["YoY Change %"], marker="

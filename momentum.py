@@ -2,14 +2,14 @@ import streamlit as st
 from bs4 import BeautifulSoup
 import pandas as pd
 import yfinance as yf
-import re, requests, random, json
+import re, requests
 from playwright.sync_api import sync_playwright
 import matplotlib.pyplot as plt
 
 st.set_page_config(layout="wide")
 
 # 👉 Alpha‑Vantage‑API‑Key (kostenlos)
-AV_KEY = "KEEVSBBKLMOHT4BJ"  # idealerweise in st.secrets auslagern
+AV_KEY = "KEEVSBBKLMOHT4BJ"  # besser in st.secrets auslagern
 
 # ============================================================
 # Ampel basierend auf QQQ‑EMAs
@@ -70,7 +70,7 @@ def scrape_finviz_news(tic: str):
     return out
 
 # ============================================================
-# EarningsWhispers‑Scraper (robust)
+# EarningsWhispers‑Scraper
 # ============================================================
 
 def get_earnings_data(tic: str):
@@ -82,10 +82,8 @@ def get_earnings_data(tic: str):
             pg.goto(url, wait_until="domcontentloaded", timeout=60000)
             for sel in ("#earnings .growth", "#earnings .surprise", "#revenue .growth", "#revenue .surprise"):
                 pg.wait_for_selector(sel, timeout=15000)
-            eg = pg.inner_text("#earnings .growth")
-            es = pg.inner_text("#earnings .surprise")
-            rg = pg.inner_text("#revenue .growth")
-            rs = pg.inner_text("#revenue .surprise")
+            eg = pg.inner_text("#earnings .growth"); es = pg.inner_text("#earnings .surprise")
+            rg = pg.inner_text("#revenue .growth"); rs = pg.inner_text("#revenue .surprise")
         except Exception:
             eg = es = rg = rs = "N/A"
         br.close()
@@ -104,7 +102,7 @@ def get_earnings_data(tic: str):
     }
 
 # ============================================================
-# Alpha‑Vantage EPS (20 Quartale) + YoY  (mit Rate‑Limit‑Check + Cache)
+# Alpha‑Vantage EPS  + YoY (mit Cache & Rate‑Limit‑Check)
 # ============================================================
 
 @st.cache_data(ttl=60)
@@ -115,7 +113,6 @@ def get_av_eps_yoy(tic: str, key: str):
     except Exception as e:
         return pd.DataFrame([{"Quarter": "-", "EPS Actual": None, "YoY Change %": None, "Hinweis": str(e)}])
 
-    # --- Rate‑Limit oder Fehler‑Handling ---
     if "quarterlyEarnings" not in data:
         msg = data.get("Note") or data.get("Information") or "AlphaVantage‑Fehler"
         return pd.DataFrame([{"Quarter": "-", "EPS Actual": None, "YoY Change %": None, "Hinweis": msg}])
@@ -131,7 +128,6 @@ def get_av_eps_yoy(tic: str, key: str):
     q["Quarter"] = "Q" + q["quarter"].astype(str) + " " + q["year"].astype(str)
     q.sort_values("fiscalDateEnding", ascending=False, inplace=True)
 
-    # YoY Change
     q["YoY Change %"] = q.groupby("quarter")["reportedEPS"].pct_change(1).round(2) * 100
     return q[["Quarter", "reportedEPS", "YoY Change %"]].rename(columns={"reportedEPS": "EPS Actual"})
 
@@ -157,15 +153,10 @@ if submitted and ticker:
     with c2:
         st.header("Last Earnings")
         ew = get_earnings_data(ticker)
-        if isinstance(ew, str):
-            st.error(ew)
-        else:
-            block = (
-                "<div class='earnings-box'>" + "".join(
-                    f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items()
-                ) + "</div>"
-            )
-            st.markdown(block, unsafe_allow_html=True)
+        block = "<div class='earnings-box'>" + "".join(
+            f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items()
+        ) + "</div>"
+        st.markdown(block, unsafe_allow_html=True)
 
     # ---------- Alpha‑Vantage EPS ----------
     st.header("Historische Earnings (Alpha Vantage)")
@@ -179,4 +170,16 @@ if submitted and ticker:
         if "Quarter" in eps_df.columns and eps_df["YoY Change %"].notna().any():
             st.subheader("EPS Veränderung % (YoY)")
             fig, ax = plt.subplots(figsize=(4, 2))
-            ax.plot(eps_df["Quarter"], eps_df["YoY Change %"], marker="
+            ax.plot(eps_df["Quarter"], eps_df["YoY Change %"], marker="o")
+            ax.set_ylabel("Change %", fontsize=8)
+            ax.set_xlabel("Quarter", fontsize=8)
+            ax.tick_params(labelsize=8)
+            ax.grid(True)
+            plt.xticks(rotation=45)
+            st.pyplot(fig)
+        else:
+            st.info("YoY-Daten nicht verfügbar")
+
+    st.markdown(
+        f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)"
+    )

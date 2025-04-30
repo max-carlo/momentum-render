@@ -171,3 +171,44 @@ if submitted and ticker:
     with c1:
         st.header("News")
         for itm in scrape_finviz_news(ticker):
+            if isinstance(itm, str):
+                st.error(itm)
+            else:
+                tm, ttl, url_news, src = itm
+                st.markdown(f"**{tm}** — [{ttl}]({url_news}) ({src})")
+
+    # ----- EarningsWhispers -----
+    with c2:
+        st.header("Last Earnings")
+        ew = get_earnings_data(ticker)
+        block = "<div class='earnings-box'>" + "".join(
+            f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items()
+        ) + "</div>"
+        st.markdown(block, unsafe_allow_html=True)
+
+    # ----- SEC EPS -----
+    st.header("Historische Earnings (SEC Edgar)")
+    d1, d2 = st.columns([1, 1])
+    eps_df = get_sec_eps_yoy(ticker)
+
+    with d1:
+        st.dataframe(eps_df)
+
+    with d2:
+        if "Quarter" in eps_df.columns and eps_df["YoY Change %"].notna().any():
+            st.subheader("EPS Veränderung % (YoY)")
+            fig, ax = plt.subplots(figsize=(4, 2))
+            ax.plot(eps_df["Quarter"], eps_df["YoY Change %"], marker="o")
+            ax.set_ylabel("Change %", fontsize=8)
+            ax.set_xlabel("Quarter", fontsize=8)
+            ax.tick_params(labelsize=8)
+            ax.grid(True)
+            plt.xticks(rotation=45)
+            st.pyplot(fig)
+        else:
+            st.info("YoY-Daten nicht verfügbar")
+
+    # Link zu Seeking Alpha
+    st.markdown(
+        f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)"
+    )

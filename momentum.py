@@ -163,18 +163,28 @@ def get_sec_eps_yoy(tic: str):
 
     rows = []
     for entry in unit_values:
-        if entry.get("fp", "").startswith("Q") and entry.get("form") in ("10-Q", "10-Q/A"):
-            end = entry.get("end")
-            val = entry.get("val")
+        fp = entry.get("fp", "")  # Q1,Q2,Q3,Q4 or FY
+        form = entry.get("form", "")
+        if fp.startswith("Q") and form in ("10-Q", "10-Q/A", "10-K", "10-K/A"):
+            # accept Q1-Q4 from 10‑Q or 10‑K filings
+            end = entry.get("end"); val = entry.get("val")
             try:
                 end_date = datetime.datetime.fromisoformat(end)
-                rows.append((end_date, val))
+                rows.append((end_date, val, fp))
+            except Exception:
+                pass
+        elif fp == "FY" and form in ("10-K", "10-K/A"):
+            # Map FY to Q4 (many issuers tag Q4 as FY)
+            end = entry.get("end"); val = entry.get("val")
+            try:
+                end_date = datetime.datetime.fromisoformat(end)
+                rows.append((end_date, val, "Q4"))
             except Exception:
                 pass
     if not rows:
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":"Keine Quartalsdaten"}])
 
-    df = pd.DataFrame(rows, columns=["Period", "EPS Actual"])
+    df = pd.DataFrame(rows, columns=["Period", "EPS Actual", "fp"])(rows, columns=["Period", "EPS Actual"])
     df.sort_values("Period", ascending=False, inplace=True)
     # Jahr + Quartal spalten zuerst anlegen
     df["year"] = df["Period"].dt.year

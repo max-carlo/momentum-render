@@ -9,7 +9,36 @@ import matplotlib.pyplot as plt
 st.set_page_config(layout="wide")
 
 # ============================================================
-# 1) Ampel: QQQ Trend
+# 1) Ampel: QQQ Trend – robust gegen leere Daten
+# ============================================================
+
+def get_ampel():
+    try:
+        qqq = yf.download("QQQ", period="3mo", interval="1d")
+    except Exception:
+        return "⚪"  # neutral bei Netzfehler
+    if len(qqq) < 3:
+        return "⚪"  # nicht genug Daten
+
+    qqq["EMA9"]  = qqq["Close"].ewm(span=9).mean()
+    qqq["EMA21"] = qqq["Close"].ewm(span=21).mean()
+
+    if (
+        qqq["EMA9"].iloc[-1] > qqq["EMA21"].iloc[-1]
+        and qqq["EMA9"].iloc[-1] > qqq["EMA9"].iloc[-2]
+        and qqq["EMA21"].iloc[-1] > qqq["EMA21"].iloc[-2]
+    ):
+        return "🟢"
+    elif (
+        qqq["EMA9"].iloc[-1] < qqq["EMA21"].iloc[-1]
+        and qqq["EMA9"].iloc[-1] < qqq["EMA9"].iloc[-2]
+        and qqq["EMA21"].iloc[-1] < qqq["EMA21"].iloc[-2]
+    ):
+        return "🔴"
+    else:
+        return "🟡"  # seitwärts / uneindeutig
+
+ampel = get_ampel()
 # ============================================================
 qqq = yf.download("QQQ", period="3mo", interval="1d")
 qqq["EMA9"] = qqq["Close"].ewm(span=9).mean()

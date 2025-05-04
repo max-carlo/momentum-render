@@ -196,4 +196,6 @@ if submitted and ticker:
         else:
             st.info("YoY-Daten nicht verfügbar")
 
-    st.markdown(f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com
+    st.markdown(
+        f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{tic}/earnings)"
+    )

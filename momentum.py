@@ -176,12 +176,11 @@ def get_sec_eps_yoy(tic: str):
 
     df = pd.DataFrame(rows, columns=["Period", "EPS Actual"])
     df.sort_values("Period", ascending=False, inplace=True)
-    # Duplikate entfernen – behalte pro Jahr+Quartal nur den neuesten Eintrag (10‑Q schlägt 10‑Q/A)
-    df = df.drop_duplicates(subset=["year", "quarter"], keep="first")
-    # Duplikate (mehrere 10-Q/A) entfernen – behalte jeweils neueste Meldung pro Jahr+Quartal
-    df = df.drop_duplicates(subset=["year", "quarter"], keep="first")
+    # Jahr + Quartal spalten zuerst anlegen
     df["year"] = df["Period"].dt.year
     df["quarter"] = df["Period"].dt.quarter
+    # Duplikate entfernen – behalte pro Jahr+Quartal nur den neuesten Eintrag
+    df = df.drop_duplicates(subset=["year", "quarter"], keep="first")
     df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)
 
     # YoY

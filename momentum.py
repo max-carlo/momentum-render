@@ -14,40 +14,8 @@ st.set_page_config(layout="wide")
 
 def get_ampel():
     try:
-        qqq = yf.download("QQQ", period="3mo", interval="1d")
-    except Exception:
-        return "⚪"  # neutral bei Netzfehler
-    if len(qqq) < 3:
-        return "⚪"  # nicht genug Daten
+        # (Doppelter Block entfernt – get_ampel() reicht)
 
-    qqq["EMA9"]  = qqq["Close"].ewm(span=9).mean()
-    qqq["EMA21"] = qqq["Close"].ewm(span=21).mean()
-
-    if (
-        qqq["EMA9"].iloc[-1] > qqq["EMA21"].iloc[-1]
-        and qqq["EMA9"].iloc[-1] > qqq["EMA9"].iloc[-2]
-        and qqq["EMA21"].iloc[-1] > qqq["EMA21"].iloc[-2]
-    ):
-        return "🟢"
-    elif (
-        qqq["EMA9"].iloc[-1] < qqq["EMA21"].iloc[-1]
-        and qqq["EMA9"].iloc[-1] < qqq["EMA9"].iloc[-2]
-        and qqq["EMA21"].iloc[-1] < qqq["EMA21"].iloc[-2]
-    ):
-        return "🔴"
-    else:
-        return "🟡"  # seitwärts / uneindeutig
-
-ampel = get_ampel()
-# ============================================================
-qqq = yf.download("QQQ", period="3mo", interval="1d")
-qqq["EMA9"] = qqq["Close"].ewm(span=9).mean()
-qqq["EMA21"] = qqq["Close"].ewm(span=21).mean()
-ampel = "🟢" if (
-    qqq["EMA9"].iloc[-1] > qqq["EMA21"].iloc[-1]
-    and qqq["EMA9"].iloc[-1] > qqq["EMA9"].iloc[-2]
-    and qqq["EMA21"].iloc[-1] > qqq["EMA21"].iloc[-2]
-) else "🔴"
 
 # ============================================================
 # 2) CSS Styling
@@ -184,14 +152,16 @@ def get_sec_eps_yoy(tic: str):
     if not rows:
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":"Keine Quartalsdaten"}])
 
-    df = pd.DataFrame(rows, columns=["Period", "EPS Actual", "fp"])(rows, columns=["Period", "EPS Actual"])
+    df = pd.DataFrame(rows, columns=["Period", "EPS Actual", "fp"])
     df.sort_values("Period", ascending=False, inplace=True)
     # Jahr + Quartal spalten zuerst anlegen
     df["year"] = df["Period"].dt.year
     df["quarter"] = df["Period"].dt.quarter
     # Duplikate entfernen – behalte pro Jahr+Quartal nur den neuesten Eintrag
     df = df.drop_duplicates(subset=["year", "quarter"], keep="first")
-    df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)
+    # falls derselbe Quarter‑String mehrfach vorkommt (wegen mehreren "fp"‑Labels), noch einmal säubern
+    df = df.drop_duplicates(subset=["Period"], keep="first")
+    df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)["quarter"].astype(str) + " " + df["year"].astype(str)
 
     # YoY
     df["YoY Change %"] = None

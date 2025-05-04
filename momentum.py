@@ -122,12 +122,33 @@ def get_sec_eps_yoy(tic:str):
     except Exception as e:
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":str(e)}])
 
-    # 6.2 CompanyFacts JSON
-    url=f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
+    # 6.2 CompanyFacts JSON
+    url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
     try:
-        facts=requests.get(url,headers={"User-Agent":"Mozilla/5.0"},timeout=20).json()
+        resp = requests.get(
+            url,
+            headers={
+                "User-Agent": "MyEarningsApp/1.0 (contact: youremail@example.com)",
+                "Accept-Encoding": "gzip, deflate",
+            },
+            timeout=20,
+        )
+        if resp.status_code != 200 or not resp.text.lstrip().startswith("{"):
+            return pd.DataFrame([{
+                "Quarter": "-",
+                "EPS Actual": None,
+                "YoY Change %": None,
+                "Hinweis": f"SEC Response {resp.status_code}"
+            }])
+        facts = resp.json()
     except Exception as e:
-        return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":str(e)}])
+        return pd.DataFrame([{
+            "Quarter": "-",
+            "EPS Actual": None,
+            "YoY Change %": None,
+            "Hinweis": str(e)
+        }])
+
 
     # EPS Basic
     try:

@@ -122,7 +122,7 @@ def get_sec_eps_yoy(tic:str):
     except Exception as e:
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":str(e)}])
 
-    # 6.2 CompanyFacts JSON
+        # 6.2 CompanyFacts JSON
     url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
     try:
         resp = requests.get(
@@ -134,21 +134,24 @@ def get_sec_eps_yoy(tic:str):
             timeout=20,
         )
         if resp.status_code != 200 or not resp.text.lstrip().startswith("{"):
-            return pd.DataFrame([{
+            return pd.DataFrame([
+                {
+                    "Quarter": "-",
+                    "EPS Actual": None,
+                    "YoY Change %": None,
+                    "Hinweis": f"SEC Response {resp.status_code}",
+                }
+            ])
+        facts = resp.json()
+    except Exception as e:
+        return pd.DataFrame([
+            {
                 "Quarter": "-",
                 "EPS Actual": None,
                 "YoY Change %": None,
-                "Hinweis": f"SEC Response {resp.status_code}"
-            }])
-        facts = resp.json()
-    except Exception as e:
-        return pd.DataFrame([{
-            "Quarter": "-",
-            "EPS Actual": None,
-            "YoY Change %": None,
-            "Hinweis": str(e)
-        }])
-
+                "Hinweis": str(e),
+            }
+        ])
 
     # EPS Basic
     try:
@@ -175,7 +178,7 @@ def get_sec_eps_yoy(tic:str):
     df.sort_values("Period",ascending=False,inplace=True)
     df["year"]=df["Period"].dt.year
     df["quarter"]=df["Period"].dt.quarter
-    df=df.drop_duplicates(subset=["year","quarter"],keep="first")
+    # df = df.drop_duplicates(subset=["year","quarter"], keep="first")  # Duplikate vorerst erlauben
     df["Quarter"]="Q"+df["quarter"].astype(str)+" "+df["year"].astype(str)
 
     df["YoY Change %"]=df.groupby("quarter")["EPS Actual"].pct_change(1).round(2)*100

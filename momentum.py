@@ -108,18 +108,28 @@ def get_earnings_data(tic: str):
 def get_sec_eps_raw(tic: str):
     UA = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
     try:
-        mapping = requests.get("https://www.sec.gov/files/company_tickers.json", headers=UA, timeout=20).json()
+                # ---- Mapping Ticker → CIK ----
+        resp_map = requests.get("https://www.sec.gov/files/company_tickers.json", headers=UA, timeout=20)
+        try:
+            mapping = resp_map.json()
+        except ValueError:
+            # Fallback auf alternative Mapping-Datei, wenn HTML kam
+            alt = requests.get("https://www.sec.gov/files/company_tickers_exchange.json", headers=UA, timeout=20)
+            mapping = alt.json()
+
         cik = next(
             (str(v["cik_str"]).zfill(10) for v in mapping.values() if v["ticker"].upper() == tic.upper()),
             None,
         )
         if not cik:
             raise ValueError("Ticker nicht gefunden")
+
+        # ---- CompanyFacts ----
         facts = requests.get(
             f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json", headers=UA, timeout=20
         ).json()
         units = facts["facts"]["us-gaap"]["EarningsPerShareBasic"]["units"]
-        unit_vals = next(iter(units.values()))
+        unit_vals = next(iter(units.values()))(iter(units.values()))
     except Exception as e:
         return pd.DataFrame([
             {

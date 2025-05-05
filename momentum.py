@@ -106,7 +106,7 @@ def get_earnings_data(tic: str):
 
 @st.cache_data(ttl=86400)
 def get_sec_eps_raw(tic: str):
-    UA = {"User-Agent": "Mozilla/5.0"}
+    UA = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
     try:
         mapping = requests.get("https://www.sec.gov/files/company_tickers.json", headers=UA, timeout=20).json()
         cik = next(

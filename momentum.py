@@ -163,22 +163,23 @@ def get_sec_eps_yoy(tic: str):
 
     rows = []
 
-    for entry in unit_values:
-    fp   = entry.get("fp", "")
-    form = entry.get("form", "")
+    
+    for entry in unit_values:                     # 0-Einrückung
+        fp   = entry.get("fp", "")                # +4
+        form = entry.get("form", "")              # +4
 
-    # Q1-Q3 aus 10-Q / 10-Q/A  ODER  FY (=Q4) aus 10-K / 10-K/A
+    # Q1-Q3 (10-Q / 10-Q/A)  ODER  FY (=Q4, 10-K / 10-K/A)   (+4/+8)
         if (
             (fp.startswith("Q") and form in ("10-Q", "10-Q/A")) or
             (fp == "FY"        and form in ("10-K", "10-K/A"))
         ):
-        end = entry.get("end")
-        val = entry.get("val")
-            try:
+            end = entry.get("end")                # +8
+            val = entry.get("val")                # +8
+            try:                                  # +8
                 end_date = datetime.datetime.fromisoformat(end)
-                rows.append((end_date, val, fp))      # fp mit ablegen
-            except Exception:
-                pass
+                rows.append((end_date, val, fp))  # fp mit speichern
+            except Exception:                     # +8
+                pass                              # +12
     
     if not rows:
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":"Keine Quartalsdaten"}])

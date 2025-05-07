@@ -162,20 +162,33 @@ def get_sec_eps_yoy(tic: str):
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":"EPS nicht gefunden"}])
 
     rows = []
+
     for entry in unit_values:
-        if entry.get("fp", "").startswith("Q") and entry.get("form") in ("10-Q", "10-Q/A"):
-            end = entry.get("end")
-            val = entry.get("val")
+    fp   = entry.get("fp", "")
+    form = entry.get("form", "")
+
+    # Q1-Q3 aus 10-Q / 10-Q/A  ODER  FY (=Q4) aus 10-K / 10-K/A
+        if (
+            (fp.startswith("Q") and form in ("10-Q", "10-Q/A")) or
+            (fp == "FY"        and form in ("10-K", "10-K/A"))
+        ):
+        end = entry.get("end")
+        val = entry.get("val")
             try:
                 end_date = datetime.datetime.fromisoformat(end)
-                rows.append((end_date, val))
+                rows.append((end_date, val, fp))      # fp mit ablegen
             except Exception:
                 pass
+    
     if not rows:
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":"Keine Quartalsdaten"}])
 
     df = pd.DataFrame(rows, columns=["Period", "EPS Actual"])
     df.sort_values("Period", ascending=False, inplace=True)
+    # FY-Einträge als Q4 interpretieren
+    df["quarter"] = df["Period"].dt.quarter        # Standard-Quartal
+    df.loc[df[2] == "FY", "quarter"] = 4           # Spalte 2 enthält fp aus rows
+    df["year"]     = df["Period"].dt.year
     df["year"] = df["Period"].dt.year
     df["quarter"] = df["Period"].dt.quarter
     df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)

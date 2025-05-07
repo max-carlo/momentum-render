@@ -184,17 +184,18 @@ def get_sec_eps_yoy(tic: str):
     if not rows:
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":"Keine Quartalsdaten"}])
 
-    df = pd.DataFrame(rows, columns=["Period", "EPS Actual"])
+    df = pd.DataFrame(rows, columns=["Period", "EPS Actual", "fp"])
+    df = pd.DataFrame(rows, columns=["Period", "EPS Actual", "fp"])
     df.sort_values("Period", ascending=False, inplace=True)
-    # FY-Einträge als Q4 interpretieren
-    df["quarter"] = df["Period"].dt.quarter        # Standard-Quartal
-    df.loc[df[2] == "FY", "quarter"] = 4           # Spalte 2 enthält fp aus rows
-    df["year"]     = df["Period"].dt.year
-    df["year"] = df["Period"].dt.year
-    df["quarter"] = df["Period"].dt.quarter
-    df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)
+
+    # FY-Einträge (10-K) als Q4 behandeln
+    df["quarter"] = df["fp"].where(df["fp"] != "FY", "Q4").str[1].astype(int)
+    df["year"]    = df["Period"].dt.year
+
+    # nur den neuesten Eintrag pro Jahr+Quartal behalten
     df = df.drop_duplicates(subset=["year", "quarter"], keep="first")
 
+    df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)
 
     # YoY
     df["YoY Change %"] = None

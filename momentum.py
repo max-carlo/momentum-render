@@ -176,10 +176,11 @@ def get_sec_eps_yoy(tic: str):
 
     df = pd.DataFrame(rows, columns=["Period", "EPS Actual"])
     df.sort_values("Period", ascending=False, inplace=True)
-    df = df.drop_duplicates(subset=["year", "quarter"], keep="first")
     df["year"] = df["Period"].dt.year
     df["quarter"] = df["Period"].dt.quarter
     df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)
+    df = df.drop_duplicates(subset=["year", "quarter"], keep="first")
+
 
     # YoY
     df["YoY Change %"] = None

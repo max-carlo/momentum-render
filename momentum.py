@@ -98,8 +98,12 @@ def get_earnings_data(tic: str):
         br = p.chromium.launch(headless=True)
         pg = br.new_page()
         pg.goto(url, wait_until="domcontentloaded", timeout=60000)
+
+        # Datum auslesen
         pg.wait_for_selector("#epsdate", timeout=15000)
         dt_text = pg.inner_text("#epsdate")
+
+        # Zahlen auslesen
         sel = (
             "#earnings .growth",
             "#earnings .surprise",
@@ -110,24 +114,27 @@ def get_earnings_data(tic: str):
         br.close()
 
     # Datum formatieren -> dd.mm.yyyy
-    from datetime import datetime
-    try:
-        parts = dt_text.split(",", 1)[-1].replace("ET", "").strip()
-        dt_obj = datetime.strptime(parts, "%B %d %Y %I:%M %p")
-        date_str = dt_obj.strftime("%d.%m.%Y")
-    except Exception:
+    m = re.search(r"([A-Za-z]+) (\d{1,2}), (\d{4})", dt_text)
+    if m:
+        month, day, year = m.group(1), m.group(2), m.group(3)
+        try:
+            dt_obj = datetime.datetime.strptime(f"{month} {day} {year}", "%B %d %Y")
+            date_str = dt_obj.strftime("%d.%m.%Y")
+        except:
+            date_str = "N/A"
+    else:
         date_str = "N/A"
 
     clean = lambda t: re.sub(r"[^\d\.-]", "", t)
     sr_raw = yf.Ticker(tic).info.get("shortRatio", "N/A")
     sr = str(round(sr_raw, 2)) if isinstance(sr_raw, (int, float)) else "N/A"
     return {
-        "Earnings Date":    date_str,
-        "Earnings Growth":  f"{clean(eg)}%",
-        "Earnings Surprise":clean(es),
-        "Revenue Growth":   f"{clean(rg)}%",
-        "Revenue Surprise": clean(rs),
-        "Short Ratio":      sr,
+        "Earnings Date":     date_str,
+        "Earnings Growth":   f"{clean(eg)}%",
+        "Earnings Surprise": clean(es),
+        "Revenue Growth":    f"{clean(rg)}%",
+        "Revenue Surprise":  clean(rs),
+        "Short Ratio":       sr,
     }
 
 # ============================================================
@@ -210,7 +217,6 @@ if submitted and ticker:
             ax.plot(eps["Quarter"], eps["YoY Change %"], linewidth=1)
             ax.set_ylabel("Change %", fontsize=8)
             ax.set_xlabel("Quarter", fontsize=8)
-            # Beschriftung nur jedes 4. Quartal
             step = max(len(eps)//4, 1)
             ax.set_xticks(range(0, len(eps), step))
             ax.set_xticklabels(eps["Quarter"][::step], rotation=45, fontsize=8)
@@ -220,6 +226,7 @@ if submitted and ticker:
         else:
             st.info("YoY-Daten nicht verfügbar")
 
-st.markdown(
-    f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{tic}/earnings)"
-)
+    # Link zu Seeking Alpha
+    st.markdown(
+        f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)"
+    )

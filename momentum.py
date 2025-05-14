@@ -56,9 +56,9 @@ st.markdown(
     """
     <style>
       .ampel-box{font-size:80px;line-height:1;text-align:right;padding-right:20px}
-      .ampel-hint{font-size:0.75rem;font-style:italic;text-align:right;padding-right:10px;margin-top:-10px;color:gray}
+      .ampel-hint{font-size:0.85rem;font-style:italic;text-align:right;padding-right:10px;margin-top:4px;color:gray}
       h1,.stHeader,.stMarkdown h2,.stMarkdown h3{font-size:1.5rem!important;font-weight:600}
-      .finviz-scroll{font-size:.875rem;font-family:sans-serif;line-height:1.4;max-height:170px;overflow-y:auto;padding-right:10px}
+      .finviz-scroll{font-size:.875rem;font-family:sans-serif;line-height:1.4;max-height:180px;overflow-y:auto;padding-right:10px}
       .earnings-box{font-size:.875rem;font-family:sans-serif;line-height:1.4;}
     </style>
     """,
@@ -135,7 +135,7 @@ def get_earnings_data(tic: str):
     }
 
 # ============================================================
-# 6) SEC Edgar EPS (XBRL CompanyFacts)
+# 6) SEC EPS (XBRL CompanyFacts)
 # ============================================================
 @st.cache_data(ttl=86400)
 def get_sec_eps_yoy(tic: str):
@@ -203,7 +203,6 @@ if submitted and ticker:
     ticker = ticker.upper()
 
     c1, c2 = st.columns(2)
-    # ----- Finviz -----
     with c1:
         st.header("News")
         news_html = "<div class='finviz-scroll'>"
@@ -216,7 +215,6 @@ if submitted and ticker:
         news_html += "</div>"
         st.markdown(news_html, unsafe_allow_html=True)
 
-    # ----- EarningsWhispers -----
     with c2:
         st.header("Last Earnings")
         ew = get_earnings_data(ticker)
@@ -226,8 +224,7 @@ if submitted and ticker:
         ) + "</div>"
         st.markdown(block, unsafe_allow_html=True)
 
-    # ----- SEC EPS -----
-    st.header("Historische Earnings (SEC Edgar)")
+    st.markdown("""<div style='margin-top:2em'><h3>Historische Earnings (SEC Edgar)</h3></div>""", unsafe_allow_html=True)
     d1, d2 = st.columns([1, 1])
     eps_df = get_sec_eps_yoy(ticker)
 
@@ -236,12 +233,11 @@ if submitted and ticker:
 
     with d2:
         if "Quarter" in eps_df.columns and eps_df["YoY Change %"].notna().any():
-            st.subheader("EPS Veränderung % (YoY)")
             fig, ax = plt.subplots(figsize=(4, 2))
-            ax.plot(eps_df["YoY Change %"], linewidth=1)
-            step = max(len(eps_df) // 4, 1)
-            ax.set_xticks(range(0, len(eps_df), step))
-            ax.set_xticklabels(eps_df["Quarter"][::step], rotation=45, fontsize=8)
+            last_12 = eps_df.iloc[:12].iloc[::-1]  # Letzte 12 Quartale chronologisch sortiert
+            ax.plot(last_12["YoY Change %"].values, linewidth=1)
+            ax.set_xticks(range(len(last_12)))
+            ax.set_xticklabels(last_12["Quarter"], rotation=45, fontsize=8)
             ax.set_ylabel("Change %", fontsize=8)
             ax.set_xlabel("Quarter", fontsize=8)
             ax.tick_params(labelsize=8)
@@ -250,7 +246,6 @@ if submitted and ticker:
         else:
             st.info("YoY-Daten nicht verfügbar")
 
-    # Link zu Seeking Alpha
     st.markdown(
         f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)"
     )

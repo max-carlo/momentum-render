@@ -39,7 +39,7 @@ def get_ampel():
         return "🟡"  # seitwärts / uneindeutig
 
 ampel = get_ampel()
-
+# ============================================================
 qqq = yf.download("QQQ", period="3mo", interval="1d")
 qqq["EMA9"] = qqq["Close"].ewm(span=9).mean()
 qqq["EMA21"] = qqq["Close"].ewm(span=21).mean()
@@ -56,7 +56,7 @@ st.markdown(
     """
     <style>
       .ampel-box{font-size:80px;line-height:1;text-align:right;padding-right:20px}
-      .ampel-hint{font-size:0.95rem;font-style:italic;text-align:right;padding-right:10px;margin-top:10px;color:gray}
+      .ampel-hint{font-size:0.85rem;font-style:italic;text-align:right;padding-right:10px;margin-top:4px;color:gray}
       h1,.stHeader,.stMarkdown h2,.stMarkdown h3{font-size:1.5rem!important;font-weight:600}
       .finviz-scroll{font-size:.875rem;font-family:sans-serif;line-height:1.4;max-height:180px;overflow-y:auto;padding-right:10px}
       .earnings-box{font-size:.875rem;font-family:sans-serif;line-height:1.4;}
@@ -125,13 +125,6 @@ def get_earnings_data(tic: str):
     except Exception:
         sr = "N/A"
 
-    try:
-        parts = dt_text.split(",", 1)[-1].replace("ET", "").strip()
-        dt_obj = datetime.datetime.strptime(parts, "%B %d %Y %I:%M %p")
-        dt_text = dt_obj.strftime("%d.%m.%Y")
-    except Exception:
-        pass
-
     return {
         "Date": dt_text,
         "Earnings Growth": f"{clean(eg)}%",
@@ -141,11 +134,119 @@ def get_earnings_data(tic: str):
         "Short Ratio": sr,
     }
 
-# Der Rest des Codes bleibt unverändert
 # ============================================================
 # 6) SEC EPS (XBRL CompanyFacts)
 # ============================================================
-# ...
+@st.cache_data(ttl=86400)
+def get_sec_eps_yoy(tic: str):
+    try:
+        mapping = requests.get("https://www.sec.gov/files/company_tickers.json", timeout=20, headers={"User-Agent":"Mozilla/5.0 myemail@example.com"}).json()
+        cik = None
+        for item in mapping.values():
+            if item["ticker"].upper() == tic.upper():
+                cik = str(item["cik_str"]).zfill(10)
+                break
+        if cik is None:
+            return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":"Ticker nicht gefunden"}])
+    except Exception as e:
+        return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":str(e)}])
+
+    url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
+    try:
+        facts = requests.get(url, headers={"User-Agent":"Mozilla/5.0 myemail@example.com"}, timeout=20).json()
+    except Exception as e:
+        return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":str(e)}])
+
+    try:
+        eps_facts = facts["facts"]["us-gaap"]["EarningsPerShareBasic"]["units"]
+        unit_values = next(iter(eps_facts.values()))
+    except Exception:
+        return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":"EPS nicht gefunden"}])
+
+    rows = []
+    for entry in unit_values:
+        fp   = entry.get("fp", "")
+        form = entry.get("form", "")
+        if (
+            (fp.startswith("Q") and form in ("10-Q", "10-Q/A")) or
+            (fp == "FY"        and form in ("10-K", "10-K/A"))
+        ):
+            end = entry.get("end")
+            val = entry.get("val")
+            try:
+                end_date = datetime.datetime.fromisoformat(end)
+                rows.append((end_date, val, fp))
+            except Exception:
+                pass
+
+    if not rows:
+        return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":"Keine Quartalsdaten"}])
+
+    df = pd.DataFrame(rows, columns=["Period", "EPS Actual", "fp"])
+    df.sort_values("Period", ascending=False, inplace=True)
+    df["quarter"] = df["fp"].where(df["fp"] != "FY", "Q4").str[1].astype(int)
+    df["year"]    = df["Period"].dt.year
+    df = df.drop_duplicates(subset=["year", "quarter"], keep="first")
+    df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)
+    df["YoY Change %"] = None
+    for idx, row in df.iterrows():
+        prev = df[(df["quarter"] == row["quarter"]) & (df["year"] == row["year"] - 1)]
+        if not prev.empty and prev.iloc[0]["EPS Actual"] not in (0, None):
+            df.at[idx, "YoY Change %"] = round((row["EPS Actual"] - prev.iloc[0]["EPS Actual"]) / abs(prev.iloc[0]["EPS Actual"]) * 100, 2)
+
+    return df[["Quarter", "EPS Actual", "YoY Change %"]]
+
+# ============================================================
 # 7) Ausgabe
 # ============================================================
-# ...
+if submitted and ticker:
+    ticker = ticker.upper()
+
+    c1, c2 = st.columns(2)
+    with c1:
+        st.header("News")
+        news_html = "<div class='finviz-scroll'>"
+        for itm in scrape_finviz_news(ticker):
+            if isinstance(itm, str):
+                news_html += f"<div style='color:red'>{itm}</div>"
+            else:
+                tm, ttl, url_news, src = itm
+                news_html += f"<div><strong>{tm}</strong> — <a href='{url_news}' target='_blank'>{ttl}</a> ({src})</div>"
+        news_html += "</div>"
+        st.markdown(news_html, unsafe_allow_html=True)
+
+    with c2:
+        st.header("Last Earnings")
+        ew = get_earnings_data(ticker)
+        st.caption(f"Stand: {ew.pop('Date')}")
+        block = "<div class='earnings-box'>" + "".join(
+            f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items()
+        ) + "</div>"
+        st.markdown(block, unsafe_allow_html=True)
+
+    st.markdown("""<div style='margin-top:2em'><h3>Historische Earnings (SEC Edgar)</h3></div>""", unsafe_allow_html=True)
+    d1, d2 = st.columns([1, 1])
+    eps_df = get_sec_eps_yoy(ticker)
+
+    with d1:
+        st.dataframe(eps_df)
+
+    with d2:
+        if "Quarter" in eps_df.columns and eps_df["YoY Change %"].notna().any():
+            fig, ax = plt.subplots(figsize=(4, 2))
+            last_12 = eps_df.iloc[:12].iloc[::-1]  # Letzte 12 Quartale chronologisch sortiert
+            ax.plot(last_12["YoY Change %"].values, linewidth=1)
+            ax.set_xticks(range(len(last_12)))
+            ax.set_xticklabels(last_12["Quarter"], rotation=45, fontsize=8)
+            ax.set_ylabel("Change %", fontsize=8)
+            ax.set_xlabel("Quarter", fontsize=8)
+            ax.tick_params(labelsize=8)
+            ax.grid(False)
+            st.pyplot(fig)
+        else:
+            st.info("YoY-Daten nicht verfügbar")
+
+    st.markdown(
+        f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)"
+    )
+

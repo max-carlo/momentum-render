@@ -56,8 +56,10 @@ st.markdown(
     """
     <style>
       .ampel-box{font-size:80px;line-height:1;text-align:right;padding-right:20px}
+      .ampel-hint{font-size:0.75rem;font-style:italic;text-align:right;padding-right:10px;margin-top:-10px;color:gray}
       h1,.stHeader,.stMarkdown h2,.stMarkdown h3{font-size:1.5rem!important;font-weight:600}
-      .finviz-scroll,.earnings-box{font-size:.875rem;font-family:sans-serif;line-height:1.4;max-height:225px;overflow-y:auto;padding-right:10px}
+      .finviz-scroll{font-size:.875rem;font-family:sans-serif;line-height:1.4;max-height:170px;overflow-y:auto;padding-right:10px}
+      .earnings-box{font-size:.875rem;font-family:sans-serif;line-height:1.4;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -74,6 +76,8 @@ with col_input:
         submitted = st.form_submit_button("Daten abrufen")
 with col_ampel:
     st.markdown(f"<div class='ampel-box'>{ampel}</div>", unsafe_allow_html=True)
+    hint_text = "*9 EMA > 21 EMA, beide steigend*" if ampel == "🟢" else ("*9 EMA < 21 EMA, beide fallend*" if ampel == "🔴" else "*uneindeutig*")
+    st.markdown(f"<div class='ampel-hint'>{hint_text}</div>", unsafe_allow_html=True)
 
 # ============================================================
 # 4) Finviz News Scraper
@@ -96,7 +100,7 @@ def scrape_finviz_news(tic: str):
     return out
 
 # ============================================================
-# 5) EarningsWhispers (unchanged)
+# 5) EarningsWhispers (mit Datum)
 # ============================================================
 
 def get_earnings_data(tic: str):
@@ -106,19 +110,23 @@ def get_earnings_data(tic: str):
         pg = br.new_page()
         try:
             pg.goto(url, wait_until="domcontentloaded", timeout=60000)
+            dt_text = pg.inner_text("#epsdate")
             for sel in ("#earnings .growth", "#earnings .surprise", "#revenue .growth", "#revenue .surprise"):
                 pg.wait_for_selector(sel, timeout=15000)
             eg = pg.inner_text("#earnings .growth"); es = pg.inner_text("#earnings .surprise")
             rg = pg.inner_text("#revenue .growth"); rs = pg.inner_text("#revenue .surprise")
         except Exception:
-            eg = es = rg = rs = "N/A"
+            dt_text = "N/A"; eg = es = rg = rs = "N/A"
         br.close()
+
     clean = lambda t: re.sub(r"[^\d\.-]", "", t)
     try:
         sr_raw = yf.Ticker(tic).info.get("shortRatio"); sr = str(round(sr_raw, 2)) if isinstance(sr_raw, (int, float)) else "N/A"
     except Exception:
         sr = "N/A"
+
     return {
+        "Date": dt_text,
         "Earnings Growth": f"{clean(eg)}%",
         "Earnings Surprise": clean(es),
         "Revenue Growth": f"{clean(rg)}%",
@@ -129,11 +137,8 @@ def get_earnings_data(tic: str):
 # ============================================================
 # 6) SEC Edgar EPS (XBRL CompanyFacts)
 # ============================================================
-
 @st.cache_data(ttl=86400)
 def get_sec_eps_yoy(tic: str):
-    """Fetch quarterly basic EPS from SEC CompanyFacts and compute YoY."""
-    # 6.1 Ticker → CIK mapping (daily JSON from SEC)
     try:
         mapping = requests.get("https://www.sec.gov/files/company_tickers.json", timeout=20, headers={"User-Agent":"Mozilla/5.0 myemail@example.com"}).json()
         cik = None
@@ -146,58 +151,43 @@ def get_sec_eps_yoy(tic: str):
     except Exception as e:
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":str(e)}])
 
-    # 6.2 CompanyFacts JSON
     url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
     try:
         facts = requests.get(url, headers={"User-Agent":"Mozilla/5.0 myemail@example.com"}, timeout=20).json()
     except Exception as e:
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":str(e)}])
 
-    # Search for GAAP EarningsPerShareBasic
     try:
         eps_facts = facts["facts"]["us-gaap"]["EarningsPerShareBasic"]["units"]
-        # pick first currency unit e.g. USD/shares
         unit_values = next(iter(eps_facts.values()))
     except Exception:
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":"EPS nicht gefunden"}])
 
     rows = []
-
-    
-    for entry in unit_values:                     # 0-Einrückung
-        fp   = entry.get("fp", "")                # +4
-        form = entry.get("form", "")              # +4
-
-    # Q1-Q3 (10-Q / 10-Q/A)  ODER  FY (=Q4, 10-K / 10-K/A)   (+4/+8)
+    for entry in unit_values:
+        fp   = entry.get("fp", "")
+        form = entry.get("form", "")
         if (
             (fp.startswith("Q") and form in ("10-Q", "10-Q/A")) or
             (fp == "FY"        and form in ("10-K", "10-K/A"))
         ):
-            end = entry.get("end")                # +8
-            val = entry.get("val")                # +8
-            try:                                  # +8
+            end = entry.get("end")
+            val = entry.get("val")
+            try:
                 end_date = datetime.datetime.fromisoformat(end)
-                rows.append((end_date, val, fp))  # fp mit speichern
-            except Exception:                     # +8
-                pass                              # +12
-    
+                rows.append((end_date, val, fp))
+            except Exception:
+                pass
+
     if not rows:
         return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"YoY Change %":None,"Hinweis":"Keine Quartalsdaten"}])
 
     df = pd.DataFrame(rows, columns=["Period", "EPS Actual", "fp"])
-    df = pd.DataFrame(rows, columns=["Period", "EPS Actual", "fp"])
     df.sort_values("Period", ascending=False, inplace=True)
-
-    # FY-Einträge (10-K) als Q4 behandeln
     df["quarter"] = df["fp"].where(df["fp"] != "FY", "Q4").str[1].astype(int)
     df["year"]    = df["Period"].dt.year
-
-    # nur den neuesten Eintrag pro Jahr+Quartal behalten
     df = df.drop_duplicates(subset=["year", "quarter"], keep="first")
-
     df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)
-
-    # YoY
     df["YoY Change %"] = None
     for idx, row in df.iterrows():
         prev = df[(df["quarter"] == row["quarter"]) & (df["year"] == row["year"] - 1)]
@@ -216,17 +206,21 @@ if submitted and ticker:
     # ----- Finviz -----
     with c1:
         st.header("News")
+        news_html = "<div class='finviz-scroll'>"
         for itm in scrape_finviz_news(ticker):
             if isinstance(itm, str):
-                st.error(itm)
+                news_html += f"<div style='color:red'>{itm}</div>"
             else:
                 tm, ttl, url_news, src = itm
-                st.markdown(f"**{tm}** — [{ttl}]({url_news}) ({src})")
+                news_html += f"<div><strong>{tm}</strong> — <a href='{url_news}' target='_blank'>{ttl}</a> ({src})</div>"
+        news_html += "</div>"
+        st.markdown(news_html, unsafe_allow_html=True)
 
     # ----- EarningsWhispers -----
     with c2:
         st.header("Last Earnings")
         ew = get_earnings_data(ticker)
+        st.caption(f"Stand: {ew.pop('Date')}")
         block = "<div class='earnings-box'>" + "".join(
             f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items()
         ) + "</div>"
@@ -244,12 +238,14 @@ if submitted and ticker:
         if "Quarter" in eps_df.columns and eps_df["YoY Change %"].notna().any():
             st.subheader("EPS Veränderung % (YoY)")
             fig, ax = plt.subplots(figsize=(4, 2))
-            ax.plot(eps_df["Quarter"], eps_df["YoY Change %"], marker="o")
+            ax.plot(eps_df["YoY Change %"], linewidth=1)
+            step = max(len(eps_df) // 4, 1)
+            ax.set_xticks(range(0, len(eps_df), step))
+            ax.set_xticklabels(eps_df["Quarter"][::step], rotation=45, fontsize=8)
             ax.set_ylabel("Change %", fontsize=8)
             ax.set_xlabel("Quarter", fontsize=8)
             ax.tick_params(labelsize=8)
-            ax.grid(True)
-            plt.xticks(rotation=45)
+            ax.grid(False)
             st.pyplot(fig)
         else:
             st.info("YoY-Daten nicht verfügbar")
@@ -258,4 +254,3 @@ if submitted and ticker:
     st.markdown(
         f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)"
     )
-

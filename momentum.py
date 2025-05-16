@@ -39,7 +39,6 @@ def get_ampel():
         return "🟡"  # seitwärts / uneindeutig
 
 ampel = get_ampel()
-# ============================================================
 qqq = yf.download("QQQ", period="3mo", interval="1d")
 qqq["EMA9"] = qqq["Close"].ewm(span=9).mean()
 qqq["EMA21"] = qqq["Close"].ewm(span=21).mean()
@@ -99,7 +98,7 @@ def scrape_finviz_news(tic: str):
     return out
 
 # ============================================================
-# 5) EarningsWhispers (mit Datum im passenden Format)
+# 5) EarningsWhispers (Datum in richtigem Format)
 # ============================================================
 def get_earnings_data(tic: str):
     url = f"https://www.earningswhispers.com/epsdetails/{tic}"
@@ -124,8 +123,8 @@ def get_earnings_data(tic: str):
         sr = "N/A"
 
     try:
-        parts = dt_text.split(",")[-1].replace("ET", "").strip()
-        parsed = datetime.datetime.strptime(parts, "%B %d %Y %I:%M %p")
+        dt_text = re.search(r"(\w+ \d+, \d{4})", dt_text).group(1)
+        parsed = datetime.datetime.strptime(dt_text, "%B %d, %Y")
         dt_text = parsed.strftime("%d.%m.%Y")
     except Exception:
         pass
@@ -140,63 +139,7 @@ def get_earnings_data(tic: str):
     }
 
 # ============================================================
-# 6) SEC EPS + Revenue
-# ============================================================
-@st.cache_data(ttl=86400)
-def get_sec_eps_yoy(tic: str):
-    try:
-        mapping = requests.get("https://www.sec.gov/files/company_tickers.json", timeout=20, headers={"User-Agent":"Mozilla/5.0 myemail@example.com"}).json()
-        cik = next((str(item["cik_str"]).zfill(10) for item in mapping.values() if item["ticker"].upper() == tic.upper()), None)
-        if cik is None:
-            raise Exception("Ticker nicht gefunden")
-        facts = requests.get(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json", headers={"User-Agent":"Mozilla/5.0 myemail@example.com"}, timeout=20).json()
-    except Exception as e:
-        return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"Revenue":None,"YoY Change %":None,"Hinweis":str(e)}])
-
-    def extract_metric(facts, key):
-        try:
-            units = facts["facts"]["us-gaap"][key]["units"]
-            return next(iter(units.values()))
-        except Exception:
-            return []
-
-    eps_entries = extract_metric(facts, "EarningsPerShareBasic")
-    rev_entries = extract_metric(facts, "Revenues")
-
-    def filter_entries(entries):
-        out = []
-        for e in entries:
-            fp = e.get("fp", ""); form = e.get("form", "")
-            if ((fp.startswith("Q") and form.startswith("10-Q")) or (fp == "FY" and form.startswith("10-K"))):
-                try:
-                    out.append((datetime.datetime.fromisoformat(e["end"]), e["val"], fp))
-                except Exception:
-                    pass
-        return out
-
-    eps_data = filter_entries(eps_entries)
-    rev_data = filter_entries(rev_entries)
-    if not eps_data:
-        return pd.DataFrame([{"Quarter":"-","EPS Actual":None,"Revenue":None,"YoY Change %":None,"Hinweis":"Keine EPS-Daten"}])
-
-    df_eps = pd.DataFrame(eps_data, columns=["Period","EPS Actual","fp"])
-    df_rev = pd.DataFrame(rev_data, columns=["Period","Revenue","fp"])
-    df = pd.merge(df_eps, df_rev, on=["Period","fp"], how="left")
-    df.sort_values("Period", ascending=False, inplace=True)
-    df["quarter"] = df["fp"].where(df["fp"] != "FY", "Q4").str[1].astype(int)
-    df["year"] = df["Period"].dt.year
-    df = df.drop_duplicates(subset=["year","quarter"], keep="first")
-    df["Quarter"] = "Q" + df["quarter"].astype(str) + " " + df["year"].astype(str)
-    df["YoY Change %"] = None
-    for idx, row in df.iterrows():
-        prev = df[(df["quarter"] == row["quarter"]) & (df["year"] == row["year"] - 1)]
-        if not prev.empty and prev.iloc[0]["EPS Actual"] not in (0, None):
-            df.at[idx, "YoY Change %"] = round((row["EPS Actual"] - prev.iloc[0]["EPS Actual"]) / abs(prev.iloc[0]["EPS Actual"]) * 100, 2)
-
-    return df[["Quarter", "EPS Actual", "Revenue", "YoY Change %"]]
-
-# ============================================================
-# 7) Ausgabe
+# 6) Ausgabe
 # ============================================================
 if submitted and ticker:
     ticker = ticker.upper()
@@ -224,16 +167,17 @@ if submitted and ticker:
         st.markdown(block, unsafe_allow_html=True)
 
     st.markdown("""<div style='margin-top:2em'><h3>Historische Earnings (SEC Edgar)</h3></div>""", unsafe_allow_html=True)
-    d1, d2 = st.columns([1, 1])
+
     eps_df = get_sec_eps_yoy(ticker)
+    st.dataframe(eps_df)
 
-    with d1:
-        st.dataframe(eps_df)
+    if "Quarter" in eps_df.columns and eps_df["YoY Change %"].notna().any():
+        col1, col2 = st.columns(2)
+        last_12 = eps_df.iloc[:12].iloc[::-1]
 
-    with d2:
-        if "Quarter" in eps_df.columns and eps_df["YoY Change %"].notna().any():
+        with col1:
+            st.subheader("EPS YoY Change")
             fig, ax = plt.subplots(figsize=(4, 2))
-            last_12 = eps_df.iloc[:12].iloc[::-1]
             ax.plot(last_12["YoY Change %"].values, linewidth=1)
             ax.set_xticks(range(len(last_12)))
             ax.set_xticklabels(last_12["Quarter"], rotation=45, fontsize=8)
@@ -243,18 +187,25 @@ if submitted and ticker:
             ax.grid(False)
             st.pyplot(fig)
 
-            st.subheader("Revenue Verlauf")
+        with col2:
+            st.subheader("Revenue YoY Change")
+            yoy_rev = last_12.copy()
+            yoy_rev["YoY Rev %"] = None
+            for idx, row in yoy_rev.iterrows():
+                prev = eps_df[(eps_df["quarter"] == row["quarter"]) & (eps_df["year"] == row["year"] - 1)]
+                if not prev.empty and prev.iloc[0]["Revenue"] not in (0, None):
+                    yoy_rev.at[idx, "YoY Rev %"] = round((row["Revenue"] - prev.iloc[0]["Revenue"]) / abs(prev.iloc[0]["Revenue"]) * 100, 2)
             fig2, ax2 = plt.subplots(figsize=(4, 2))
-            ax2.plot(last_12["Revenue"].values, linewidth=1)
-            ax2.set_xticks(range(len(last_12)))
-            ax2.set_xticklabels(last_12["Quarter"], rotation=45, fontsize=8)
-            ax2.set_ylabel("Revenue", fontsize=8)
+            ax2.plot(yoy_rev["YoY Rev %"].values, linewidth=1)
+            ax2.set_xticks(range(len(yoy_rev)))
+            ax2.set_xticklabels(yoy_rev["Quarter"], rotation=45, fontsize=8)
+            ax2.set_ylabel("Revenue YoY %", fontsize=8)
             ax2.set_xlabel("Quarter", fontsize=8)
             ax2.tick_params(labelsize=8)
             ax2.grid(False)
             st.pyplot(fig2)
-        else:
-            st.info("YoY-Daten nicht verfügbar")
+    else:
+        st.info("YoY-Daten nicht verfügbar")
 
     st.markdown(
         f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)"

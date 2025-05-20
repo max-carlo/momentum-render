@@ -18,12 +18,16 @@ def get_ampel():
         return "⚪", "uneindeutig"
     qqq["EMA9"] = qqq["Close"].ewm(span=9).mean()
     qqq["EMA21"] = qqq["Close"].ewm(span=21).mean()
-    up = (qqq["EMA9"].iloc[-1] > qqq["EMA21"].iloc[-1] and
-          qqq["EMA9"].iloc[-1] > qqq["EMA9"].iloc[-2] and
-          qqq["EMA21"].iloc[-1] > qqq["EMA21"].iloc[-2])
-    down = (qqq["EMA9"].iloc[-1] < qqq["EMA21"].iloc[-1] and
-            qqq["EMA9"].iloc[-1] < qqq["EMA9"].iloc[-2] and
-            qqq["EMA21"].iloc[-1] < qqq["EMA21"].iloc[-2])
+    up = (
+        qqq["EMA9"].iloc[-1] > qqq["EMA21"].iloc[-1]
+        and qqq["EMA9"].iloc[-1] > qqq["EMA9"].iloc[-2]
+        and qqq["EMA21"].iloc[-1] > qqq["EMA21"].iloc[-2]
+    )
+    down = (
+        qqq["EMA9"].iloc[-1] < qqq["EMA21"].iloc[-1]
+        and qqq["EMA9"].iloc[-1] < qqq["EMA9"].iloc[-2]
+        and qqq["EMA21"].iloc[-1] < qqq["EMA21"].iloc[-2]
+    )
     if up:
         return "🟢", "9 EMA > 21 EMA, beide steigend"
     if down:
@@ -51,7 +55,7 @@ st.markdown(
 # ============================================================
 # 3) Input & Ampel
 # ============================================================
-col_in, col_amp = st.columns([4,1])
+col_in, col_amp = st.columns([4, 1])
 with col_in:
     st.title("Aktienanalyse")
     with st.form("main_form"):
@@ -68,7 +72,7 @@ with col_amp:
 def scrape_finviz_news(tic):
     url = f"https://finviz.com/quote.ashx?t={tic}&p=d"
     try:
-        r = requests.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=15)
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
         r.raise_for_status()
     except Exception as e:
         return [f"Finviz‑Fehler: {e}"]
@@ -76,7 +80,7 @@ def scrape_finviz_news(tic):
     rows = soup.select("table.fullview-news-outer tr")
     out = []
     for row in rows:
-        td=row.find("td",width="130"); a=row.find("a",class_="tab-link-news"); sp=row.find("span")
+        td = row.find("td", width="130"); a = row.find("a", class_="tab-link-news"); sp = row.find("span")
         if td and a and sp:
             out.append((td.text.strip(), a.text.strip(), a["href"], sp.text.strip("()")))
     return out
@@ -86,117 +90,103 @@ def scrape_finviz_news(tic):
 # ============================================================
 
 def get_earnings_data(tic):
-    url=f"https://www.earningswhispers.com/epsdetails/{tic}"
+    url = f"https://www.earningswhispers.com/epsdetails/{tic}"
     with sync_playwright() as p:
-        br=p.chromium.launch(headless=True);
-        pg=br.new_page()
+        br = p.chromium.launch(headless=True)
+        pg = br.new_page()
         try:
-            pg.goto(url,wait_until="domcontentloaded",timeout=60000)
-            dt=pg.inner_text("#epsdate")
-            for s in ("#earnings .growth","#earnings .surprise","#revenue .growth","#revenue .surprise"):
-                pg.wait_for_selector(s,timeout=15000)
-            eg=pg.inner_text("#earnings .growth"); es=pg.inner_text("#earnings .surprise")
-            rg=pg.inner_text("#revenue .growth"); rs=pg.inner_text("#revenue .surprise")
+            pg.goto(url, wait_until="domcontentloaded", timeout=60000)
+            dt = pg.inner_text("#epsdate")
+            for s in ("#earnings .growth", "#earnings .surprise", "#revenue .growth", "#revenue .surprise"):
+                pg.wait_for_selector(s, timeout=15000)
+            eg = pg.inner_text("#earnings .growth"); es = pg.inner_text("#earnings .surprise")
+            rg = pg.inner_text("#revenue .growth"); rs = pg.inner_text("#revenue .surprise")
         except Exception:
-            dt="N/A"; eg=es=rg=rs="N/A"
+            dt = "N/A"; eg = es = rg = rs = "N/A"
         br.close()
-    clean=lambda t: re.sub(r"[^\d\.-]","",t)
+    clean = lambda t: re.sub(r"[^\d\.-]", "", t)
     try:
-        dt=re.search(r"(\w+ \d+, \d{4})",dt).group(1)
-        dt=datetime.datetime.strptime(dt,"%B %d, %Y").strftime("%d.%m.%Y")
+        dt = re.search(r"(\w+ \d+, \d{4})", dt).group(1)
+        dt = datetime.datetime.strptime(dt, "%B %d, %Y").strftime("%d.%m.%Y")
     except Exception:
         pass
-    return {"Date":dt,"Earnings Growth":f"{clean(eg)}%","Earnings Surprise":clean(es),"Revenue Growth":f"{clean(rg)}%","Revenue Surprise":clean(rs)}
+    return {
+        "Date": dt,
+        "Earnings Growth": f"{clean(eg)}%",
+        "Earnings Surprise": clean(es),
+        "Revenue Growth": f"{clean(rg)}%",
+        "Revenue Surprise": clean(rs),
+    }
 
 # ============================================================
-# 6) SEC CompanyFacts → EPS + Revenue mit YoY
+# 6) SEC‑Daten (EPS & Revenue mit YoY)
 # ============================================================
 @st.cache_data(ttl=86400)
 def sec_eps_rev_yoy(tic):
-    UA={"User-Agent":"Mozilla/5.0"}
+    UA = {"User-Agent": "Mozilla/5.0"}
     try:
-        mapping=requests.get("https://www.sec.gov/files/company_tickers.json",headers=UA,timeout=20).json()
-        cik=next((str(v["cik_str"]).zfill(10) for v in mapping.values() if v["ticker"].upper()==tic.upper()),None)
+        mapping = requests.get("https://www.sec.gov/files/company_tickers.json", headers=UA, timeout=20).json()
+        cik = next((str(v["cik_str"]).zfill(10) for v in mapping.values() if v["ticker"].upper() == tic.upper()), None)
         if not cik:
             raise ValueError("Ticker nicht gefunden")
-        facts=requests.get(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json",headers=UA,timeout=20).json()
+        facts = requests.get(f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json", headers=UA, timeout=20).json()
     except Exception as e:
-        return pd.DataFrame([{"Quarter":"-","EPS":None,"Revenue":None,"EPS YoY%":None,"Rev YoY%":None,"Hinweis":str(e)}])
+        return pd.DataFrame([{"Quarter": "-", "EPS": None, "Revenue": None, "EPS YoY%": None, "Rev YoY%": None, "Hinweis": str(e)}])
 
     def pull(key):
         try:
             return next(iter(facts["facts"]["us-gaap"][key]["units"].values()))
         except Exception:
             return []
-    eps=pull("EarningsPerShareBasic"); rev=pull("Revenues")
-    def filt(lst):
-        out=[]
+
+    eps = pull("EarningsPerShareBasic"); rev = pull("Revenues")
+
+    def filtr(lst):
+        out = []
         for e in lst:
-            fp=e.get("fp",""); form=e.get("form","")
-            if ((fp.startswith("Q") and form.startswith("10-Q")) or (fp=="FY" and form.startswith("10-K"))):
+            fp = e.get("fp", ""); form = e.get("form", "")
+            if (fp.startswith("Q") and form.startswith("10-Q")) or (fp == "FY" and form.startswith("10-K")):
                 try:
                     out.append((datetime.datetime.fromisoformat(e["end"]), e["val"], fp))
                 except Exception:
                     pass
         return out
-    eps_df=pd.DataFrame(filt(eps),columns=["Period","EPS","fp"])
-    rev_df=pd.DataFrame(filt(rev),columns=["Period","Revenue","fp"])
-    df=pd.merge(eps_df,rev_df,on=["Period","fp"],how="left")
-    df.sort_values("Period",ascending=False,inplace=True)
-    df["q"]=df["fp"].where(df["fp"]!="FY","Q4").str[1].astype(int)
-    df["y"]=df["Period"].dt.year
-    df=df.drop_duplicates(subset=["y","q"],keep="first")
-    df["Quarter"]="Q"+df["q"].astype(str)+" "+df["y"].astype(str)
-    df["EPS YoY%"]=df.groupby("q")["EPS"].pct_change(1)*100
-    df["Rev YoY%"]=df.groupby("q")["Revenue"].pct_change(1)*100
-    df.round({"EPS YoY%":2,"Rev YoY%":2},")
-    return df[["Quarter","EPS","Revenue","EPS YoY%","Rev YoY%","q","y"]]
+
+    eps_df = pd.DataFrame(filtr(eps), columns=["Period", "EPS", "fp"])
+    rev_df = pd.DataFrame(filtr(rev), columns=["Period", "Revenue", "fp"])
+    df = pd.merge(eps_df, rev_df, on=["Period", "fp"], how="left")
+    df.sort_values("Period", ascending=False, inplace=True)
+    df["q"] = df["fp"].where(df["fp"] != "FY", "Q4").str[1].astype(int)
+    df["y"] = df["Period"].dt.year
+    df = df.drop_duplicates(subset=["y", "q"], keep="first")
+    df["Quarter"] = "Q" + df["q"].astype(str) + " " + df["y"].astype(str)
+    df["EPS YoY%"] = df.groupby("q")["EPS"].pct_change(1) * 100
+    df["Rev YoY%"] = df.groupby("q")["Revenue"].pct_change(1) * 100
+    df["EPS YoY%"] = df["EPS YoY%"].round(2)
+    df["Rev YoY%"] = df["Rev YoY%"].round(2)
+    return df[["Quarter", "EPS", "Revenue", "EPS YoY%", "Rev YoY%", "q", "y"]]
 
 # ============================================================
 # 7) Ausgabe
 # ============================================================
 if submitted and ticker:
-    tic=ticker.upper()
+    tic = ticker.upper()
 
-    # ---------------- News + Last Earnings ----------------
-    colN,colE=st.columns(2)
+    # ---- News + Last Earnings ----
+    colN, colE = st.columns(2)
     with colN:
         st.header("News")
-        html="<div class='finviz-scroll'>"
+        html = "<div class='finviz-scroll'>"
         for itm in scrape_finviz_news(tic):
-            if isinstance(itm,str):
-                html+=f"<div style='color:red'>{itm}</div>"
+            if isinstance(itm, str):
+                html += f"<div style='color:red'>{itm}</div>"
             else:
-                tm,ttl,url,src=itm
-                html+=f"<div><strong>{tm}</strong> — <a href='{url}' target='_blank'>{ttl}</a> ({src})</div>"
-        html+="</div>"; st.markdown(html,unsafe_allow_html=True)
+                tm, ttl, url, src = itm
+                html += f"<div><strong>{tm}</strong> — <a href='{url}' target='_blank'>{ttl}</a> ({src})</div>"
+        html += "</div>"
+        st.markdown(html, unsafe_allow_html=True)
     with colE:
         st.header("Last Earnings")
-        ew=get_earnings_data(tic)
+        ew = get_earnings_data(tic)
         st.caption(f"Stand: {ew.pop('Date')}")
-        st.markdown("<div class='earnings-box'>"+"".join(f"<div><strong>{k}</strong>: {v}</div>" for k,v in ew.items())+"</div>",unsafe_allow_html=True)
-
-    # ---------------- Historische Earnings ----------------
-    st.markdown("""<div style='margin-top:2em'><h3>Historische Earnings (SEC Edgar)</h3></div>""",unsafe_allow_html=True)
-    data=sec_eps_rev_yoy(tic)
-    st.dataframe(data.drop(columns=["q","y"]))
-
-    if data[["EPS YoY%","Rev YoY%"].].notna().any().any():
-        col1,col2=st.columns(2)
-        last12=data.iloc[:12][::-1]
-        with col1:
-            st.subheader("EPS YoY%")
-            fig,ax=plt.subplots(figsize=(4,2)); ax.plot(last12["EPS YoY%"],linewidth=1)
-            ax.set_xticks(range(len(last12)))
-            ax.set_xticklabels(last12["Quarter"],rotation=45,fontsize=8)
-            ax.set_ylabel("%",fontsize=8); ax.grid(False); st.pyplot(fig)
-        with col2:
-            st.subheader("Revenue YoY%")
-            fig2,ax2=plt.subplots(figsize=(4,2)); ax2.plot(last12["Rev YoY%"],linewidth=1)
-            ax2.set_xticks(range(len(last12)))
-            ax2.set_xticklabels(last12["Quarter"],rotation=45,fontsize=8)
-            ax2.set_ylabel("%",fontsize=8); ax2.grid(False); st.pyplot(fig2)
-    else:
-        st.info("Keine YoY‑Daten verfügbar")
-
-    st.markdown(f"[➡️ Seeking Alpha Earnings](https://seekingalpha.com/symbol/{tic}/earnings)")
+        st.markdown("<div class='earnings-box'>" + "".join(f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items()) + "</

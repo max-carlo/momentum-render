@@ -147,7 +147,7 @@ def sec_eps_rev_yoy(tic):
     df["Quarter"]="Q"+df["q"].astype(str)+" "+df["y"].astype(str)
     df["EPS YoY%"]=df.groupby("q")["EPS"].pct_change()*100
     df["Rev YoY%"]=df.groupby("q")["Revenue"].pct_change()*100
-    df[["EPS YoY%","Rev YoY%"]]=df[["EPS YoY%","Rev YoY%"].].round(2)
+    df[["EPS YoY%","Rev YoY%"]]=df[["EPS YoY%","Rev YoY%"]].round(2)
     return df[["Quarter","EPS","Revenue","EPS YoY%","Rev YoY%"]]
 
 # ============================================================
@@ -185,7 +185,7 @@ if submitted and ticker:
     st.dataframe(full_df,use_container_width=True)
 
     # letzte 12 Quartale (chronologisch)
-    last12=full_df.dropna(subset=["EPS YoY%","Rev YoY%"]).head(12)[::-1]
+    last12=full_df.dropna(subset=["EPS YoY%","Rev YoY%']).head(12)[::-1]
     col_eps,col_rev=st.columns(2)
     if not last12.empty:
         with col_eps:

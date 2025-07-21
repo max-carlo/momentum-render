@@ -196,9 +196,7 @@ def get_sec_eps_yoy(tic: str):
 
     return df[["Quarter", "EPS Actual", "YoY Change %"]]
 
-# ============================================================
-# 7) Ausgabe
-# ============================================================
+# 7) Ausgabe  – angepasst
 if submitted and ticker:
     ticker = ticker.upper()
 
@@ -217,37 +215,20 @@ if submitted and ticker:
 
     with c2:
         st.header("Last Earnings")
+
+        # ----------------------------------------------------
+        # alt:  ew.pop('Date') -> st.caption(...)
+        # neu: Datum wie alle anderen Zeilen anzeigen
+        # ----------------------------------------------------
         ew = get_earnings_data(ticker)
-        st.caption(f"Stand: {ew.pop('Date')}")
-        block = "<div class='earnings-box'>" + "".join(
-            f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items()
-        ) + "</div>"
+        datum = ew.pop("Date", "N/A")          # Datum aus dict ziehen
+        block = (
+            "<div class='earnings-box'>"
+            f"<div><strong>Datum</strong>: {datum}</div>"  # zuerst Datum
+            + "".join(f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items())
+            + "</div>"
+        )
         st.markdown(block, unsafe_allow_html=True)
 
-    st.markdown("""<div style='margin-top:2em'><h3>Historische Earnings (SEC Edgar)</h3></div>""", unsafe_allow_html=True)
-    d1, d2 = st.columns([1, 1])
-    eps_df = get_sec_eps_yoy(ticker)
-
-    with d1:
-        st.dataframe(eps_df)
-
-    with d2:
-        if "Quarter" in eps_df.columns and eps_df["YoY Change %"].notna().any():
-            fig, ax = plt.subplots(figsize=(4, 2))
-            last_12 = eps_df.iloc[:12].iloc[::-1]  # Letzte 12 Quartale chronologisch sortiert
-            ax.plot(last_12["YoY Change %"].values, linewidth=1)
-            ax.set_xticks(range(len(last_12)))
-            ax.set_xticklabels(last_12["Quarter"], rotation=45, fontsize=8)
-            ax.set_ylabel("Change %", fontsize=8)
-            ax.set_xlabel("Quarter", fontsize=8)
-            ax.tick_params(labelsize=8)
-            ax.grid(False)
-            st.pyplot(fig)
-        else:
-            st.info("YoY-Daten nicht verfügbar")
-
-    st.markdown(
-        f"[➡️ Earnings auf Seeking Alpha](https://seekingalpha.com/symbol/{ticker}/earnings)"
-    )
 
 

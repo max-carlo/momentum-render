@@ -212,18 +212,22 @@ def _scrape_earningswhispers(tic: str, max_attempts: int = 10):
     return "", "N/A", "N/A", "N/A", "N/A"
 
 
-def _get_short_ratio(tic: str, max_attempts: int = 4) -> str:
-    """Short Ratio via yfinance .info — auf Server-IPs (Render) drosselt Yahoo
-    den quoteSummary-Endpoint (429), daher mit Retry + Backoff."""
+def _get_short_ratio(tic: str, max_attempts: int = 4):
+    """Short Ratio via yfinance .info. Gibt (wert, diagnose) zurück.
+    diagnose ist temporär, um auf Render den echten Fehler sichtbar zu machen."""
+    import yfinance as _yf
+    diag = [f"yfinance={_yf.__version__}"]
     for attempt in range(max_attempts):
         try:
-            sr_raw = yf.Ticker(tic).info.get("shortRatio")
+            info = yf.Ticker(tic).info
+            sr_raw = info.get("shortRatio")
+            diag.append(f"V{attempt+1}: info_keys={len(info)} shortRatio={sr_raw!r}")
             if isinstance(sr_raw, (int, float)):
-                return str(round(sr_raw, 2))
-        except Exception:
-            pass
+                return str(round(sr_raw, 2)), " | ".join(diag)
+        except Exception as e:
+            diag.append(f"V{attempt+1}: EXC {type(e).__name__}: {str(e)[:90]}")
         time.sleep(1.0 * (attempt + 1))
-    return "N/A"
+    return "N/A", " | ".join(diag)
 
 
 def get_earnings_data(tic: str):
@@ -242,7 +246,7 @@ def get_earnings_data(tic: str):
     pct = lambda t: f"{clean(t)}%" if clean(t) else "N/A"
     num = lambda t: clean(t) or "N/A"
 
-    sr = _get_short_ratio(tic)
+    sr, sr_diag = _get_short_ratio(tic)
 
     return {
         "Datum":             date_norm,
@@ -252,6 +256,7 @@ def get_earnings_data(tic: str):
         "Revenue Growth":    pct(rg),
         "Revenue Surprise":  num(rs),
         "Short Ratio":       sr,
+        "_sr_diag":          sr_diag,
     }
 
 # ------------------------------------------------------------
@@ -294,7 +299,10 @@ if submitted and ticker:
         st.header("Earnings")
         with st.spinner("Lade EarningsWhispers-Daten..."):
             ew = get_earnings_data(tic)
+        sr_diag = ew.pop("_sr_diag", "")
         box = "<div class='earnings-box'>"
         box += "".join(f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items())
         box += "</div>"
         st.markdown(box, unsafe_allow_html=True)
+        if sr_diag:
+            st.caption(f"🔧 Short-Ratio-Diagnose: {sr_diag}")

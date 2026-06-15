@@ -1,6 +1,10 @@
-streamlit
-playwright
-beautifulsoup4
-pandas
+# Alle Versionen gepinnt für reproduzierbare Builds.
+# Lehre: ungepinnte Deps zogen bei frischen Builds neuere, teils inkompatible
+# Versionen (yfinance .info brach, Chromium-Drift) — main lief nur stabil, weil
+# sein Image eingefroren war. Diese Pins = der verifiziert funktionierende Stand.
+streamlit==1.58.0
+playwright==1.60.0
+beautifulsoup4==4.15.0
+pandas==3.0.3
 yfinance==0.2.65
-requests
+requests==2.34.2

@@ -4,8 +4,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import re, requests, datetime
-from bs4 import BeautifulSoup
+import re, datetime, time
 from playwright.sync_api import sync_playwright
 
 st.set_page_config(layout="wide")
@@ -92,12 +91,15 @@ def _normalize_epsdate(raw: str) -> str:
         return raw
 
 def _extract_session(raw: str) -> str:
-    """AMC / BMO oder konkrete Uhrzeit aus dem EarningsWhispers-Datumstext."""
+    """Konkrete Uhrzeit (inkl. ET) bzw. AMC/BMO aus dem EarningsWhispers-Datumstext.
+
+    Beispiel-Rohtext: 'Thursday, April 30, 2026 at 4:30 PM ET'
+    """
     if not raw:
         return "N/A"
-    m = re.search(r"(\d{1,2}:\d{2}\s*[AP]M)", raw, re.IGNORECASE)
+    m = re.search(r"(\d{1,2}:\d{2}\s*[AP]M(?:\s*ET)?)", raw, re.IGNORECASE)
     if m:
-        return m.group(1)
+        return re.sub(r"\s+", " ", m.group(1)).strip()
     if "After" in raw:
         return "AMC (After Market Close)"
     if "Before" in raw:
@@ -127,41 +129,63 @@ def _fallback_yf_date(tic: str) -> str:
 # ------------------------------------------------------------
 # 5) EarningsWhispers – identische Selektoren wie Original
 # ------------------------------------------------------------
-def get_earnings_data(tic: str):
+def _scrape_earningswhispers(tic: str, max_attempts: int = 10):
+    """Scrapt EarningsWhispers mit Retry.
+
+    EarningsWhispers liefert sporadisch HTTP 503 ('The service is unavailable.')
+    an Scraper aus. Ein einzelner Versuch scheitert deshalb häufig — wir
+    versuchen es mehrfach. Ein 503 lädt sofort (winziger Body), wird also schnell
+    erkannt und übersprungen, ohne auf #epsdate-Timeout zu warten.
+    """
     url = f"https://www.earningswhispers.com/epsdetails/{tic}"
     with sync_playwright() as p:
         br = p.chromium.launch(headless=True)
-        pg = br.new_page()
         try:
-            pg.goto(url, wait_until="domcontentloaded", timeout=60000)
+            for attempt in range(max_attempts):
+                pg = br.new_page()
+                try:
+                    pg.goto(url, wait_until="domcontentloaded", timeout=60000)
 
-            try:
-                pg.locator("text=Accept").click(timeout=3000)
-            except Exception:
-                pass
+                    # 503-Sperrseite schnell erkennen → sofort neuer Versuch
+                    if "service is unavailable" in pg.inner_text("body").lower():
+                        time.sleep(1.0)
+                        continue
 
-            try:
-                pg.wait_for_function(
-                    """() => {
-                        const n = document.querySelector('#epsdate');
-                        return n && n.textContent.trim().length > 0;
-                    }""",
-                    timeout=10000,
-                )
-            except Exception:
-                pass
+                    try:
+                        pg.locator("text=Accept").click(timeout=2000)
+                    except Exception:
+                        pass
 
-            dt_text = pg.inner_text("#epsdate")
-            for sel in ("#earnings .growth", "#earnings .surprise", "#revenue .growth", "#revenue .surprise"):
-                pg.wait_for_selector(sel, timeout=15000)
-            eg = pg.inner_text("#earnings .growth")
-            es = pg.inner_text("#earnings .surprise")
-            rg = pg.inner_text("#revenue .growth")
-            rs = pg.inner_text("#revenue .surprise")
-        except Exception as e:
-            dt_text = ""
-            eg = es = rg = rs = f"FEHLER: {e}"
-        br.close()
+                    # warten bis #epsdate echten Inhalt hat (JS-gerendert)
+                    pg.wait_for_function(
+                        """() => {
+                            const n = document.querySelector('#epsdate');
+                            return n && n.textContent.trim().length > 0;
+                        }""",
+                        timeout=8000,
+                    )
+
+                    dt_text = pg.inner_text("#epsdate")
+                    for sel in ("#earnings .growth", "#earnings .surprise",
+                                "#revenue .growth", "#revenue .surprise"):
+                        pg.wait_for_selector(sel, timeout=8000)
+                    eg = pg.inner_text("#earnings .growth")
+                    es = pg.inner_text("#earnings .surprise")
+                    rg = pg.inner_text("#revenue .growth")
+                    rs = pg.inner_text("#revenue .surprise")
+                    return dt_text, eg, es, rg, rs
+                except Exception:
+                    # noch nicht gerendert o.ä. → nächster Versuch
+                    time.sleep(1.0)
+                finally:
+                    pg.close()
+        finally:
+            br.close()
+    return "", "N/A", "N/A", "N/A", "N/A"
+
+
+def get_earnings_data(tic: str):
+    dt_text, eg, es, rg, rs = _scrape_earningswhispers(tic)
 
     date_norm = _normalize_epsdate(dt_text)
     if date_norm == "N/A":
@@ -169,7 +193,13 @@ def get_earnings_data(tic: str):
 
     session_str = _extract_session(dt_text)
 
-    clean = lambda t: re.sub(r"[^\d\.-]", "", t)
+    def clean(t):
+        v = re.sub(r"[^\d\.-]", "", t or "")
+        return v if v not in ("", ".", "-") else None
+
+    pct = lambda t: f"{clean(t)}%" if clean(t) else "N/A"
+    num = lambda t: clean(t) or "N/A"
+
     try:
         sr_raw = yf.Ticker(tic).info.get("shortRatio")
         sr = str(round(sr_raw, 2)) if isinstance(sr_raw, (int, float)) else "N/A"
@@ -179,10 +209,10 @@ def get_earnings_data(tic: str):
     return {
         "Datum":             date_norm,
         "Uhrzeit":           session_str,
-        "Earnings Growth":   f"{clean(eg)}%",
-        "Earnings Surprise": clean(es),
-        "Revenue Growth":    f"{clean(rg)}%",
-        "Revenue Surprise":  clean(rs),
+        "Earnings Growth":   pct(eg),
+        "Earnings Surprise": num(es),
+        "Revenue Growth":    pct(rg),
+        "Revenue Surprise":  num(rs),
         "Short Ratio":       sr,
     }
 

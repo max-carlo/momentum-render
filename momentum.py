@@ -4,7 +4,8 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import re, datetime
+import re, requests, datetime
+from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 st.set_page_config(layout="wide")
@@ -75,7 +76,7 @@ with c_lamp:
     )
 
 # ------------------------------------------------------------
-# 4) Hilfsfunktionen
+# 4) Hilfsfunktionen (identisch mit Original)
 # ------------------------------------------------------------
 def _normalize_epsdate(raw: str) -> str:
     if not raw or not raw.strip():
@@ -90,8 +91,8 @@ def _normalize_epsdate(raw: str) -> str:
     except Exception:
         return raw
 
-def _extract_time(raw: str) -> str:
-    """Uhrzeit oder Session (AMC/BMO) aus EarningsWhispers-Datumstext."""
+def _extract_session(raw: str) -> str:
+    """AMC / BMO oder konkrete Uhrzeit aus dem EarningsWhispers-Datumstext."""
     if not raw:
         return "N/A"
     m = re.search(r"(\d{1,2}:\d{2}\s*[AP]M)", raw, re.IGNORECASE)
@@ -124,9 +125,9 @@ def _fallback_yf_date(tic: str) -> str:
     return "N/A"
 
 # ------------------------------------------------------------
-# 5) EarningsWhispers via Playwright
+# 5) EarningsWhispers – identische Selektoren wie Original
 # ------------------------------------------------------------
-def get_earnings_data(tic: str) -> dict:
+def get_earnings_data(tic: str):
     url = f"https://www.earningswhispers.com/epsdetails/{tic}"
     with sync_playwright() as p:
         br = p.chromium.launch(headless=True)
@@ -151,14 +152,6 @@ def get_earnings_data(tic: str) -> dict:
                 pass
 
             dt_text = pg.inner_text("#epsdate")
-
-            # Uhrzeit: eigenes Element versuchen, sonst aus Datumstext
-            try:
-                time_raw = pg.inner_text("#epstime").strip()
-                time_str = time_raw if time_raw else _extract_time(dt_text)
-            except Exception:
-                time_str = _extract_time(dt_text)
-
             for sel in ("#earnings .growth", "#earnings .surprise", "#revenue .growth", "#revenue .surprise"):
                 pg.wait_for_selector(sel, timeout=15000)
             eg = pg.inner_text("#earnings .growth")
@@ -167,13 +160,14 @@ def get_earnings_data(tic: str) -> dict:
             rs = pg.inner_text("#revenue .surprise")
         except Exception:
             dt_text = ""
-            time_str = "N/A"
             eg = es = rg = rs = "N/A"
         br.close()
 
     date_norm = _normalize_epsdate(dt_text)
     if date_norm == "N/A":
         date_norm = _fallback_yf_date(tic)
+
+    session_str = _extract_session(dt_text)
 
     clean = lambda t: re.sub(r"[^\d\.-]", "", t)
     try:
@@ -183,13 +177,13 @@ def get_earnings_data(tic: str) -> dict:
         sr = "N/A"
 
     return {
-        "Datum":            date_norm,
-        "Uhrzeit":          time_str,
-        "Earnings Growth":  f"{clean(eg)}%",
+        "Datum":             date_norm,
+        "Uhrzeit":           session_str,
+        "Earnings Growth":   f"{clean(eg)}%",
         "Earnings Surprise": clean(es),
-        "Revenue Growth":   f"{clean(rg)}%",
-        "Revenue Surprise": clean(rs),
-        "Short Ratio":      sr,
+        "Revenue Growth":    f"{clean(rg)}%",
+        "Revenue Surprise":  clean(rs),
+        "Short Ratio":       sr,
     }
 
 # ------------------------------------------------------------

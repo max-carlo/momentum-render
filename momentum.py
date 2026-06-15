@@ -4,8 +4,7 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import re, datetime
-from playwright.sync_api import sync_playwright
+import datetime
 
 st.set_page_config(layout="wide")
 
@@ -75,130 +74,112 @@ with c_lamp:
     )
 
 # ------------------------------------------------------------
-# 4) EPS-Datum & Uhrzeit normalisieren
+# 4) Earnings-Daten via yfinance
 # ------------------------------------------------------------
-def _normalize_epsdate(raw: str) -> str:
-    if not raw or not raw.strip():
-        return "N/A"
-    raw = raw.strip()
-    m = re.search(r"[A-Za-z]+,\s+([A-Za-z]+\s+\d{1,2},\s+\d{4})", raw)
-    if not m:
-        return raw
-    try:
-        dt = datetime.datetime.strptime(m.group(1), "%B %d, %Y")
-        return dt.strftime("%d.%m.%Y")
-    except Exception:
-        return raw
-
-def _extract_time(raw: str) -> str:
-    """Extrahiert Uhrzeit oder Session (AMC/BMO) aus dem EarningsWhispers-Datumstext."""
-    if not raw:
-        return ""
-    # Konkrete Uhrzeit z.B. "4:05 PM"
-    m = re.search(r"(\d{1,2}:\d{2}\s*[AP]M)", raw, re.IGNORECASE)
-    if m:
-        return m.group(1)
-    if "After" in raw:
-        return "AMC (After Market Close)"
-    if "Before" in raw:
-        return "BMO (Before Market Open)"
-    return ""
-
-def _fallback_yf_date(tic: str) -> str:
-    try:
-        yft = yf.Ticker(tic)
-        info = yft.info or {}
-        for key in ("nextEarningsDate", "earningsDate"):
-            if key in info and info[key]:
-                return pd.to_datetime(info[key]).strftime("%d.%m.%Y")
-        cal = yft.calendar
-        if isinstance(cal, pd.DataFrame) and not cal.empty:
-            if "Earnings Date" in cal.index:
-                val = cal.loc["Earnings Date"][0]
-            else:
-                val = next((v for v in cal.values.flatten()
-                            if isinstance(v, (pd.Timestamp, datetime.datetime, datetime.date))), None)
-            if val is not None:
-                return pd.to_datetime(val).strftime("%d.%m.%Y")
-    except Exception:
-        pass
-    return "N/A"
-
-# ------------------------------------------------------------
-# 5) EarningsWhispers
-# ------------------------------------------------------------
-def get_earnings_data(tic: str):
-    url = f"https://www.earningswhispers.com/epsdetails/{tic}"
-    with sync_playwright() as p:
-        br = p.chromium.launch(headless=True)
-        pg = br.new_page()
-        try:
-            pg.goto(url, wait_until="domcontentloaded", timeout=60000)
-
-            try:
-                pg.locator("text=Accept").click(timeout=3000)
-            except Exception:
-                pass
-
-            try:
-                pg.wait_for_function(
-                    """() => {
-                        const n = document.querySelector('#epsdate');
-                        return n && n.textContent.trim().length > 0;
-                    }""",
-                    timeout=10000,
-                )
-            except Exception:
-                pass
-
-            dt_text = pg.inner_text("#epsdate")
-
-            # Uhrzeit: eigenes Element versuchen, sonst aus epsdate-Text
-            try:
-                time_raw = pg.inner_text("#epstime").strip()
-                time_str = time_raw if time_raw else _extract_time(dt_text)
-            except Exception:
-                time_str = _extract_time(dt_text)
-
-            for sel in ("#earnings .growth", "#earnings .surprise", "#revenue .growth", "#revenue .surprise"):
-                pg.wait_for_selector(sel, timeout=15000)
-            eg = pg.inner_text("#earnings .growth")
-            es = pg.inner_text("#earnings .surprise")
-            rg = pg.inner_text("#revenue .growth")
-            rs = pg.inner_text("#revenue .surprise")
-        except Exception:
-            dt_text = time_str = ""
-            eg = es = rg = rs = "N/A"
-        br.close()
-
-    date_norm = _normalize_epsdate(dt_text)
-    if date_norm == "N/A":
-        date_norm = _fallback_yf_date(tic)
-
-    clean = lambda t: re.sub(r"[^\d\.-]", "", t)
-    try:
-        sr_raw = yf.Ticker(tic).info.get("shortRatio")
-        sr = str(round(sr_raw, 2)) if isinstance(sr_raw, (int, float)) else "N/A"
-    except Exception:
-        sr = "N/A"
-
-    return {
-        "Datum": date_norm,
-        "Uhrzeit": time_str or "N/A",
-        "Earnings Growth": f"{clean(eg)}%",
-        "Earnings Surprise": clean(es),
-        "Revenue Growth": f"{clean(rg)}%",
-        "Revenue Surprise": clean(rs),
-        "Short Ratio": sr,
+def get_earnings_data(tic: str) -> dict:
+    result = {
+        "Nächstes Earnings-Datum": "N/A",
+        "Uhrzeit / Session":       "N/A",
+        "EPS Surprise (letztes Q)": "N/A",
+        "EPS Growth YoY":           "N/A",
+        "Revenue Growth YoY":       "N/A",
+        "Short Ratio":              "N/A",
     }
 
+    yft = yf.Ticker(tic)
+
+    # --- Datum & Uhrzeit aus earnings_dates ---
+    try:
+        ed = yft.earnings_dates
+        if ed is not None and not ed.empty:
+            # Nächster Termin = Zeile ohne gemeldetes EPS
+            upcoming = ed[ed["Reported EPS"].isna()]
+            if not upcoming.empty:
+                dt = upcoming.index[0]
+                result["Nächstes Earnings-Datum"] = dt.strftime("%d.%m.%Y")
+                h = dt.hour
+                if h == 0:
+                    result["Uhrzeit / Session"] = "Zeit unbekannt"
+                elif 4 <= h <= 11:
+                    result["Uhrzeit / Session"] = f"{dt.strftime('%H:%M')} ET  (BMO)"
+                else:
+                    result["Uhrzeit / Session"] = f"{dt.strftime('%H:%M')} ET  (AMC)"
+    except Exception:
+        pass
+
+    # Fallback: calendar
+    if result["Nächstes Earnings-Datum"] == "N/A":
+        try:
+            cal = yft.calendar
+            if isinstance(cal, dict) and "Earnings Date" in cal:
+                dates = cal["Earnings Date"]
+                d = pd.to_datetime(dates[0] if hasattr(dates, "__len__") else dates)
+                result["Nächstes Earnings-Datum"] = d.strftime("%d.%m.%Y")
+            elif isinstance(cal, pd.DataFrame) and not cal.empty and "Earnings Date" in cal.index:
+                d = pd.to_datetime(cal.loc["Earnings Date"].iloc[0])
+                result["Nächstes Earnings-Datum"] = d.strftime("%d.%m.%Y")
+        except Exception:
+            pass
+
+    # --- EPS Surprise & Growth aus gemeldeten Quartalen ---
+    try:
+        ed = yft.earnings_dates
+        if ed is not None and not ed.empty:
+            reported = ed[ed["Reported EPS"].notna()].copy()
+            if not reported.empty:
+                latest = reported.iloc[0]
+
+                if "Surprise(%)" in reported.columns and pd.notna(latest.get("Surprise(%)")):
+                    result["EPS Surprise (letztes Q)"] = f"{latest['Surprise(%)']:.1f}%"
+
+                # YoY: gleicher Quartal vor einem Jahr = 4 Einträge früher
+                if len(reported) >= 5:
+                    eps_now = latest["Reported EPS"]
+                    eps_yoy = reported.iloc[4]["Reported EPS"]
+                    if pd.notna(eps_now) and pd.notna(eps_yoy) and eps_yoy != 0:
+                        growth = (eps_now - eps_yoy) / abs(eps_yoy) * 100
+                        result["EPS Growth YoY"] = f"{growth:.1f}%"
+    except Exception:
+        pass
+
+    # --- Revenue Growth aus quarterly income statement ---
+    try:
+        qf = None
+        for attr in ("quarterly_income_stmt", "quarterly_financials"):
+            qf = getattr(yft, attr, None)
+            if qf is not None and not qf.empty:
+                break
+        if qf is not None and not qf.empty:
+            for label in ("Total Revenue", "Revenue"):
+                if label in qf.index:
+                    rev = qf.loc[label]
+                    if len(rev) >= 5:
+                        r_now = rev.iloc[0]
+                        r_yoy = rev.iloc[4]
+                        if pd.notna(r_now) and pd.notna(r_yoy) and r_yoy != 0:
+                            growth = (r_now - r_yoy) / abs(r_yoy) * 100
+                            result["Revenue Growth YoY"] = f"{growth:.1f}%"
+                    break
+    except Exception:
+        pass
+
+    # --- Short Ratio ---
+    try:
+        sr_raw = yft.info.get("shortRatio")
+        if isinstance(sr_raw, (int, float)):
+            result["Short Ratio"] = str(round(sr_raw, 2))
+    except Exception:
+        pass
+
+    return result
+
 # ------------------------------------------------------------
-# 6) Ausgabe
+# 5) Ausgabe
 # ------------------------------------------------------------
 if submitted and ticker:
     tic = ticker.upper()
 
-    # Externe Links als klickbare Buttons (öffnen nativen neuen Tab)
+    # Externe Links
     st.subheader("Externe Links")
     link_items = [("Finviz", f"https://finviz.com/quote.ashx?t={tic}&p=d")]
     if open_sa:
@@ -211,7 +192,7 @@ if submitted and ticker:
 
     # Earnings
     st.header("Earnings")
-    with st.spinner("Lade EarningsWhispers-Daten..."):
+    with st.spinner("Lade Daten..."):
         ew = get_earnings_data(tic)
     box = "<div class='earnings-box'>"
     box += "".join(f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items())

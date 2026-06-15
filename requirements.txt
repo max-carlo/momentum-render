@@ -1,4 +1,4 @@
 streamlit
 playwright
 pandas
-yfinance
+yfinance==0.2.65

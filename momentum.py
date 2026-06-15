@@ -132,20 +132,24 @@ def _fallback_yf_date(tic: str) -> str:
 # 5) EarningsWhispers – identische Selektoren wie Original
 # ------------------------------------------------------------
 @st.cache_data(ttl=3600)
-def scrape_finviz_news(tic: str):
-    """Finviz-News, 1h gecacht. Der Cache ist app-weit über alle Nutzer geteilt —
-    Finviz wird so max. 1x pro Ticker pro Stunde gescraped (verhindert 429)."""
+def scrape_finviz(tic: str):
+    """Holt die Finviz-Quote-Seite EINMAL (1h app-weit gecacht) und liefert News
+    + Kennzahlen. Finviz wird so max. 1x pro Ticker/Stunde gescraped (kein 429),
+    und die Short Ratio kommt aus derselben Seite — ganz ohne yfinance/Yahoo
+    (dessen .info-Endpoint von Render-IPs rate-limited wird)."""
     base = "https://finviz.com"
     url  = f"{base}/quote.ashx?t={tic}&p=d"
     try:
         r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
         r.raise_for_status()
     except Exception as e:
-        return [f"Finviz-Fehler: {e}"]
+        return {"news": [f"Finviz-Fehler: {e}"], "short_ratio": "N/A"}
 
     soup = BeautifulSoup(r.text, "html.parser")
-    rows, out = soup.select("table.fullview-news-outer tr"), []
-    for row in rows:
+
+    # News
+    news = []
+    for row in soup.select("table.fullview-news-outer tr"):
         td = row.find("td", width="130")
         a = row.find("a", class_="tab-link-news")
         sp = row.find("span")
@@ -153,8 +157,16 @@ def scrape_finviz_news(tic: str):
             link = a["href"]
             if link.startswith("/"):
                 link = base + link
-            out.append((td.text.strip(), a.text.strip(), link, sp.text.strip("()")))
-    return out
+            news.append((td.text.strip(), a.text.strip(), link, sp.text.strip("()")))
+
+    # Kennzahlen aus der Snapshot-Tabelle (Label/Wert-Paare)
+    cells = soup.select("table.snapshot-table2 td")
+    snap = {}
+    for i in range(0, len(cells) - 1, 2):
+        snap[cells[i].get_text(strip=True)] = cells[i + 1].get_text(strip=True)
+    short_ratio = snap.get("Short Ratio") or "N/A"
+
+    return {"news": news, "short_ratio": short_ratio}
 
 
 def _scrape_earningswhispers(tic: str, max_attempts: int = 10):
@@ -212,24 +224,6 @@ def _scrape_earningswhispers(tic: str, max_attempts: int = 10):
     return "", "N/A", "N/A", "N/A", "N/A"
 
 
-def _get_short_ratio(tic: str, max_attempts: int = 4):
-    """Short Ratio via yfinance .info. Gibt (wert, diagnose) zurück.
-    diagnose ist temporär, um auf Render den echten Fehler sichtbar zu machen."""
-    import yfinance as _yf
-    diag = [f"yfinance={_yf.__version__}"]
-    for attempt in range(max_attempts):
-        try:
-            info = yf.Ticker(tic).info
-            sr_raw = info.get("shortRatio")
-            diag.append(f"V{attempt+1}: info_keys={len(info)} shortRatio={sr_raw!r}")
-            if isinstance(sr_raw, (int, float)):
-                return str(round(sr_raw, 2)), " | ".join(diag)
-        except Exception as e:
-            diag.append(f"V{attempt+1}: EXC {type(e).__name__}: {str(e)[:90]}")
-        time.sleep(1.0 * (attempt + 1))
-    return "N/A", " | ".join(diag)
-
-
 def get_earnings_data(tic: str):
     dt_text, eg, es, rg, rs = _scrape_earningswhispers(tic)
 
@@ -246,7 +240,8 @@ def get_earnings_data(tic: str):
     pct = lambda t: f"{clean(t)}%" if clean(t) else "N/A"
     num = lambda t: clean(t) or "N/A"
 
-    sr, sr_diag = _get_short_ratio(tic)
+    # Short Ratio aus dem (gecachten) Finviz-Abruf — kein Yahoo-Rate-Limit
+    sr = scrape_finviz(tic).get("short_ratio", "N/A")
 
     return {
         "Datum":             date_norm,
@@ -256,7 +251,6 @@ def get_earnings_data(tic: str):
         "Revenue Growth":    pct(rg),
         "Revenue Surprise":  num(rs),
         "Short Ratio":       sr,
-        "_sr_diag":          sr_diag,
     }
 
 # ------------------------------------------------------------
@@ -282,7 +276,7 @@ if submitted and ticker:
     with c1:
         st.header("News")
         with st.spinner("Lade News..."):
-            news = scrape_finviz_news(tic)
+            news = scrape_finviz(tic)["news"]
         html = "<div class='finviz-scroll'>"
         for itm in news:
             if isinstance(itm, str):
@@ -299,10 +293,7 @@ if submitted and ticker:
         st.header("Earnings")
         with st.spinner("Lade EarningsWhispers-Daten..."):
             ew = get_earnings_data(tic)
-        sr_diag = ew.pop("_sr_diag", "")
         box = "<div class='earnings-box'>"
         box += "".join(f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items())
         box += "</div>"
         st.markdown(box, unsafe_allow_html=True)
-        if sr_diag:
-            st.caption(f"🔧 Short-Ratio-Diagnose: {sr_diag}")

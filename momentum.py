@@ -335,8 +335,8 @@ if submitted and ticker:
     st.markdown(
         f"""
         <div class="ext-links">
-          <a class="ext-btn" href="https://seekingalpha.com/symbol/{tic}" target="_blank" rel="noopener">SeekingAlpha ↗</a>
-          <a class="ext-btn" href="https://www.zacks.com/stock/quote/{tic}" target="_blank" rel="noopener">Zacks ↗</a>
+          <a class="ext-btn" href="https://seekingalpha.com/symbol/{tic}/earnings" target="_blank" rel="noopener">SeekingAlpha ↗</a>
+          <a class="ext-btn" href="https://www.zacks.com/stock/research/{tic}/earnings-calendar" target="_blank" rel="noopener">Zacks ↗</a>
         </div>
         """,
         unsafe_allow_html=True,

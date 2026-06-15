@@ -1,4 +1,6 @@
 streamlit
 playwright
+beautifulsoup4
 pandas
 yfinance==0.2.65
+requests

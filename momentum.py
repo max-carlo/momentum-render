@@ -4,7 +4,8 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import re, datetime, time
+import re, datetime, time, requests
+from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
 st.set_page_config(layout="wide")
@@ -47,6 +48,7 @@ st.markdown(
       .ampel-box{font-size:80px;line-height:1;text-align:right;padding-right:20px}
       .ampel-hint{font-size:.85rem;font-style:italic;text-align:right;padding-right:10px;margin-top:4px;color:gray}
       h1,.stHeader,.stMarkdown h2,.stMarkdown h3{font-size:1.5rem!important;font-weight:600}
+      .finviz-scroll{font-size:.875rem;font-family:sans-serif;line-height:1.4;max-height:300px;overflow-y:auto;padding-right:10px}
       .earnings-box{font-size:.875rem;font-family:sans-serif;line-height:1.8;}
     </style>
     """,
@@ -129,6 +131,32 @@ def _fallback_yf_date(tic: str) -> str:
 # ------------------------------------------------------------
 # 5) EarningsWhispers – identische Selektoren wie Original
 # ------------------------------------------------------------
+@st.cache_data(ttl=3600)
+def scrape_finviz_news(tic: str):
+    """Finviz-News, 1h gecacht. Der Cache ist app-weit über alle Nutzer geteilt —
+    Finviz wird so max. 1x pro Ticker pro Stunde gescraped (verhindert 429)."""
+    base = "https://finviz.com"
+    url  = f"{base}/quote.ashx?t={tic}&p=d"
+    try:
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        r.raise_for_status()
+    except Exception as e:
+        return [f"Finviz-Fehler: {e}"]
+
+    soup = BeautifulSoup(r.text, "html.parser")
+    rows, out = soup.select("table.fullview-news-outer tr"), []
+    for row in rows:
+        td = row.find("td", width="130")
+        a = row.find("a", class_="tab-link-news")
+        sp = row.find("span")
+        if td and a and sp:
+            link = a["href"]
+            if link.startswith("/"):
+                link = base + link
+            out.append((td.text.strip(), a.text.strip(), link, sp.text.strip("()")))
+    return out
+
+
 def _scrape_earningswhispers(tic: str, max_attempts: int = 10):
     """Scrapt EarningsWhispers mit Retry.
 
@@ -232,22 +260,41 @@ def get_earnings_data(tic: str):
 if submitted and ticker:
     tic = ticker.upper()
 
-    # Externe Links
-    st.subheader("Externe Links")
-    link_items = [("Finviz", f"https://finviz.com/quote.ashx?t={tic}&p=d")]
+    # Optionale Tab-Links (Checkboxen)
+    link_items = []
     if open_sa:
         link_items.append(("SeekingAlpha", f"https://seekingalpha.com/symbol/{tic}"))
     if open_zacks:
         link_items.append(("Zacks", f"https://www.zacks.com/stock/quote/{tic}"))
-    cols = st.columns(len(link_items))
-    for col, (label, url) in zip(cols, link_items):
-        col.link_button(f"↗ {label}", url)
+    if link_items:
+        cols = st.columns(len(link_items))
+        for col, (label, url) in zip(cols, link_items):
+            col.link_button(f"↗ {label}", url)
+
+    c1, c2 = st.columns(2)
+
+    # News (Finviz, 1h gecacht)
+    with c1:
+        st.header("News")
+        with st.spinner("Lade News..."):
+            news = scrape_finviz_news(tic)
+        html = "<div class='finviz-scroll'>"
+        for itm in news:
+            if isinstance(itm, str):
+                html += f"<div style='color:red'>{itm}</div>"
+            else:
+                tm, ttl, link, src = itm
+                html += (f"<div><strong>{tm}</strong> — "
+                         f"<a href='{link}' target='_blank' rel='noopener noreferrer'>{ttl}</a> ({src})</div>")
+        html += "</div>"
+        st.markdown(html, unsafe_allow_html=True)
 
     # Earnings
-    st.header("Earnings")
-    with st.spinner("Lade EarningsWhispers-Daten..."):
-        ew = get_earnings_data(tic)
-    box = "<div class='earnings-box'>"
-    box += "".join(f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items())
-    box += "</div>"
-    st.markdown(box, unsafe_allow_html=True)
+    with c2:
+        st.header("Earnings")
+        with st.spinner("Lade EarningsWhispers-Daten..."):
+            ew = get_earnings_data(tic)
+        box = "<div class='earnings-box'>"
+        box += "".join(f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items())
+        box += "</div>"
+        st.markdown(box, unsafe_allow_html=True)

@@ -2,7 +2,6 @@
 # =======================================
 
 import streamlit as st
-import streamlit.components.v1 as components
 import pandas as pd
 import yfinance as yf
 import re, datetime
@@ -199,17 +198,21 @@ def get_earnings_data(tic: str):
 if submitted and ticker:
     tic = ticker.upper()
 
-    # Tabs öffnen
-    js = f'window.open("https://finviz.com/quote.ashx?t={tic}&p=d","_blank");'
+    # Externe Links als klickbare Buttons (öffnen nativen neuen Tab)
+    st.subheader("Externe Links")
+    link_items = [("Finviz", f"https://finviz.com/quote.ashx?t={tic}&p=d")]
     if open_sa:
-        js += f'window.open("https://seekingalpha.com/symbol/{tic}","_blank");'
+        link_items.append(("SeekingAlpha", f"https://seekingalpha.com/symbol/{tic}"))
     if open_zacks:
-        js += f'window.open("https://www.zacks.com/stock/quote/{tic}","_blank");'
-    components.html(f"<script>{js}</script>", height=0)
+        link_items.append(("Zacks", f"https://www.zacks.com/stock/quote/{tic}"))
+    cols = st.columns(len(link_items))
+    for col, (label, url) in zip(cols, link_items):
+        col.link_button(f"↗ {label}", url)
 
     # Earnings
     st.header("Earnings")
-    ew = get_earnings_data(tic)
+    with st.spinner("Lade EarningsWhispers-Daten..."):
+        ew = get_earnings_data(tic)
     box = "<div class='earnings-box'>"
     box += "".join(f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items())
     box += "</div>"

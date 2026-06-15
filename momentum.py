@@ -184,6 +184,20 @@ def _scrape_earningswhispers(tic: str, max_attempts: int = 10):
     return "", "N/A", "N/A", "N/A", "N/A"
 
 
+def _get_short_ratio(tic: str, max_attempts: int = 4) -> str:
+    """Short Ratio via yfinance .info — auf Server-IPs (Render) drosselt Yahoo
+    den quoteSummary-Endpoint (429), daher mit Retry + Backoff."""
+    for attempt in range(max_attempts):
+        try:
+            sr_raw = yf.Ticker(tic).info.get("shortRatio")
+            if isinstance(sr_raw, (int, float)):
+                return str(round(sr_raw, 2))
+        except Exception:
+            pass
+        time.sleep(1.0 * (attempt + 1))
+    return "N/A"
+
+
 def get_earnings_data(tic: str):
     dt_text, eg, es, rg, rs = _scrape_earningswhispers(tic)
 
@@ -200,11 +214,7 @@ def get_earnings_data(tic: str):
     pct = lambda t: f"{clean(t)}%" if clean(t) else "N/A"
     num = lambda t: clean(t) or "N/A"
 
-    try:
-        sr_raw = yf.Ticker(tic).info.get("shortRatio")
-        sr = str(round(sr_raw, 2)) if isinstance(sr_raw, (int, float)) else "N/A"
-    except Exception:
-        sr = "N/A"
+    sr = _get_short_ratio(tic)
 
     return {
         "Datum":             date_norm,

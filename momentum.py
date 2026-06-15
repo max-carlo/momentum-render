@@ -158,9 +158,9 @@ def get_earnings_data(tic: str):
             es = pg.inner_text("#earnings .surprise")
             rg = pg.inner_text("#revenue .growth")
             rs = pg.inner_text("#revenue .surprise")
-        except Exception:
+        except Exception as e:
             dt_text = ""
-            eg = es = rg = rs = "N/A"
+            eg = es = rg = rs = f"FEHLER: {e}"
         br.close()
 
     date_norm = _normalize_epsdate(dt_text)

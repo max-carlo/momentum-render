@@ -2,9 +2,10 @@
 # =======================================
 
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import yfinance as yf
-import re, datetime, time, requests
+import re, datetime, time, requests, json
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
 
@@ -45,11 +46,36 @@ ampel = get_ampel()
 st.markdown(
     """
     <style>
-      .ampel-box{font-size:80px;line-height:1;text-align:right;padding-right:20px}
-      .ampel-hint{font-size:.85rem;font-style:italic;text-align:right;padding-right:10px;margin-top:4px;color:gray}
-      h1,.stHeader,.stMarkdown h2,.stMarkdown h3{font-size:1.5rem!important;font-weight:600}
-      .finviz-scroll{font-size:.875rem;font-family:sans-serif;line-height:1.4;max-height:300px;overflow-y:auto;padding-right:10px}
-      .earnings-box{font-size:.875rem;font-family:sans-serif;line-height:1.8;}
+      .stApp{background:#f7f8fa;}
+      h1,h2,h3,.stMarkdown h2,.stMarkdown h3{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+        color:#101828;font-weight:700;letter-spacing:-.01em;}
+      h1{font-size:1.9rem!important;}
+      .panel-title{font-size:1.05rem;font-weight:700;color:#101828;margin:0 0 10px 2px;
+        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}
+
+      /* Ampel */
+      .ampel-box{font-size:72px;line-height:1;text-align:right;padding-right:18px}
+      .ampel-hint{font-size:.8rem;font-style:italic;text-align:right;padding-right:10px;margin-top:2px;color:#98a2b3}
+
+      /* News-Karte */
+      .news-card{background:#fff;border:1px solid #e8ebef;border-radius:14px;padding:8px 6px 8px 16px;
+        box-shadow:0 1px 3px rgba(16,24,40,.06);}
+      .news-scroll{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+        font-size:.86rem;line-height:1.45;max-height:340px;overflow-y:auto;padding-right:12px;}
+      .news-scroll .it{padding:7px 0;border-bottom:1px solid #f2f4f7;}
+      .news-scroll .it:last-child{border-bottom:none;}
+      .news-scroll .tm{color:#98a2b3;font-weight:600;font-size:.78rem;}
+      .news-scroll a{color:#1d6fe0;text-decoration:none;}
+      .news-scroll a:hover{text-decoration:underline;}
+      .news-scroll .src{color:#98a2b3;}
+
+      /* Externe Link-Buttons */
+      .ext-links{display:flex;gap:10px;margin:2px 0 14px 0;}
+      .ext-btn{display:inline-flex;align-items:center;gap:6px;font-size:.85rem;font-weight:600;
+        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+        padding:8px 16px;border-radius:10px;text-decoration:none;border:1px solid #d0d5dd;
+        background:#fff;color:#344054;box-shadow:0 1px 2px rgba(16,24,40,.05);transition:all .15s;}
+      .ext-btn:hover{background:#f9fafb;border-color:#98a2b3;transform:translateY(-1px);}
     </style>
     """,
     unsafe_allow_html=True,
@@ -63,11 +89,6 @@ with c_in:
     st.title("Aktienanalyse")
     with st.form("main_form"):
         ticker = st.text_input("Ticker eingeben", "")
-        cb1, cb2 = st.columns(2)
-        with cb1:
-            open_sa = st.checkbox("SeekingAlpha öffnen")
-        with cb2:
-            open_zacks = st.checkbox("Zacks öffnen")
         submitted = st.form_submit_button("Daten abrufen")
 with c_lamp:
     st.markdown(f"<div class='ampel-box'>{ampel}</div>", unsafe_allow_html=True)
@@ -253,47 +274,96 @@ def get_earnings_data(tic: str):
         "Short Ratio":       sr,
     }
 
+
+def render_earnings_card(ew: dict):
+    """Frische, helle Earnings-Karte mit Copy-Button (kopiert die Werte ohne Überschrift)."""
+    rows = "".join(
+        f"<div class='er-row'><span class='er-k'>{k}</span><span class='er-v'>{v}</span></div>"
+        for k, v in ew.items()
+    )
+    copy_text = "\n".join(f"{k}: {v}" for k, v in ew.items())
+    payload = json.dumps(copy_text)
+    html = f"""
+    <div class="er-card">
+      <div class="er-head"><button id="er-copy" class="er-copy">📋 Kopieren</button></div>
+      {rows}
+    </div>
+    <style>
+      *{{box-sizing:border-box;}}
+      body{{margin:0;}}
+      .er-card{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+        background:#fff;border:1px solid #e8ebef;border-radius:14px;padding:14px 18px 16px;
+        box-shadow:0 1px 3px rgba(16,24,40,.06);}}
+      .er-head{{display:flex;justify-content:flex-end;margin-bottom:4px;}}
+      .er-row{{display:flex;justify-content:space-between;align-items:center;
+        padding:8px 0;border-bottom:1px solid #f2f4f7;font-size:.9rem;}}
+      .er-row:last-child{{border-bottom:none;}}
+      .er-k{{color:#667085;font-weight:500;}}
+      .er-v{{color:#101828;font-weight:700;}}
+      .er-copy{{border:1px solid #d0d5dd;background:#f9fafb;color:#344054;border-radius:8px;
+        padding:5px 12px;font-size:.78rem;font-weight:600;cursor:pointer;font-family:inherit;
+        transition:all .15s;}}
+      .er-copy:hover{{background:#f0f1f3;border-color:#98a2b3;}}
+      .er-copy.ok{{background:#ecfdf3;border-color:#abefc6;color:#067647;}}
+    </style>
+    <script>
+      (function(){{
+        var b=document.getElementById('er-copy'), t={payload};
+        function done(){{b.textContent='✓ Kopiert';b.classList.add('ok');
+          setTimeout(function(){{b.textContent='📋 Kopieren';b.classList.remove('ok');}},1500);}}
+        function fb(){{var ta=document.createElement('textarea');ta.value=t;
+          ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);
+          ta.focus();ta.select();try{{document.execCommand('copy');done();}}catch(e){{}}
+          document.body.removeChild(ta);}}
+        b.addEventListener('click',function(){{
+          if(navigator.clipboard&&navigator.clipboard.writeText){{
+            navigator.clipboard.writeText(t).then(done,fb);
+          }}else{{fb();}}
+        }});
+      }})();
+    </script>
+    """
+    components.html(html, height=46 + 38 * len(ew) + 24)
+
 # ------------------------------------------------------------
 # 6) Ausgabe
 # ------------------------------------------------------------
 if submitted and ticker:
     tic = ticker.upper()
 
-    # Optionale Tab-Links (Checkboxen)
-    link_items = []
-    if open_sa:
-        link_items.append(("SeekingAlpha", f"https://seekingalpha.com/symbol/{tic}"))
-    if open_zacks:
-        link_items.append(("Zacks", f"https://www.zacks.com/stock/quote/{tic}"))
-    if link_items:
-        cols = st.columns(len(link_items))
-        for col, (label, url) in zip(cols, link_items):
-            col.link_button(f"↗ {label}", url)
+    # Externe Seiten — feste Buttons, öffnen direkt einen neuen Tab
+    st.markdown(
+        f"""
+        <div class="ext-links">
+          <a class="ext-btn" href="https://seekingalpha.com/symbol/{tic}" target="_blank" rel="noopener">SeekingAlpha ↗</a>
+          <a class="ext-btn" href="https://www.zacks.com/stock/quote/{tic}" target="_blank" rel="noopener">Zacks ↗</a>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     c1, c2 = st.columns(2)
 
     # News (Finviz, 1h gecacht)
     with c1:
-        st.header("News")
+        st.markdown("<div class='panel-title'>📰 News</div>", unsafe_allow_html=True)
         with st.spinner("Lade News..."):
             news = scrape_finviz(tic)["news"]
-        html = "<div class='finviz-scroll'>"
+        html = "<div class='news-card'><div class='news-scroll'>"
         for itm in news:
             if isinstance(itm, str):
-                html += f"<div style='color:red'>{itm}</div>"
+                html += f"<div class='it' style='color:#d92d20'>{itm}</div>"
             else:
                 tm, ttl, link, src = itm
-                html += (f"<div><strong>{tm}</strong> — "
-                         f"<a href='{link}' target='_blank' rel='noopener noreferrer'>{ttl}</a> ({src})</div>")
-        html += "</div>"
+                html += (f"<div class='it'><span class='tm'>{tm}</span><br>"
+                         f"<a href='{link}' target='_blank' rel='noopener noreferrer'>{ttl}</a> "
+                         f"<span class='src'>({src})</span></div>")
+        html += "</div></div>"
         st.markdown(html, unsafe_allow_html=True)
 
     # Earnings
     with c2:
-        st.header("Earnings")
+        st.markdown("<div class='panel-title'>📊 Earnings</div>", unsafe_allow_html=True)
         with st.spinner("Lade EarningsWhispers-Daten..."):
             ew = get_earnings_data(tic)
-        box = "<div class='earnings-box'>"
-        box += "".join(f"<div><strong>{k}</strong>: {v}</div>" for k, v in ew.items())
-        box += "</div>"
-        st.markdown(box, unsafe_allow_html=True)
+        render_earnings_card(ew)

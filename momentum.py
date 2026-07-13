@@ -23,20 +23,17 @@ def get_ampel():
         return "⚪"
     qqq["EMA9"]  = qqq["Close"].ewm(span=9).mean()
     qqq["EMA21"] = qqq["Close"].ewm(span=21).mean()
-    if (
-        qqq["EMA9"].iloc[-1] > qqq["EMA21"].iloc[-1]
-        and qqq["EMA9"].iloc[-1] > qqq["EMA9"].iloc[-2]
-        and qqq["EMA21"].iloc[-1] > qqq["EMA21"].iloc[-2]
-    ):
-        return "🟢"
-    elif (
-        qqq["EMA9"].iloc[-1] < qqq["EMA21"].iloc[-1]
-        and qqq["EMA9"].iloc[-1] < qqq["EMA9"].iloc[-2]
-        and qqq["EMA21"].iloc[-1] < qqq["EMA21"].iloc[-2]
-    ):
-        return "🔴"
-    else:
+    # 🟢 9EMA > 21EMA und beide steigend
+    # 🟡 9EMA > 21EMA, aber mind. einer steigt nicht
+    # 🔴 21EMA > 9EMA
+    if qqq["EMA9"].iloc[-1] > qqq["EMA21"].iloc[-1]:
+        if (
+            qqq["EMA9"].iloc[-1] > qqq["EMA9"].iloc[-2]
+            and qqq["EMA21"].iloc[-1] > qqq["EMA21"].iloc[-2]
+        ):
+            return "🟢"
         return "🟡"
+    return "🔴"
 
 ampel = get_ampel()
 
@@ -93,7 +90,7 @@ with c_in:
 with c_lamp:
     st.markdown(f"<div class='ampel-box'>{ampel}</div>", unsafe_allow_html=True)
     st.markdown(
-        f"<div class='ampel-hint'>{'*9 EMA > 21 EMA, beide steigend*' if ampel=='🟢' else '*9 EMA < 21 EMA, beide fallend*' if ampel=='🔴' else '*uneindeutig*'}</div>",
+        f"<div class='ampel-hint'>{'*9 EMA > 21 EMA, beide steigend*' if ampel=='🟢' else '*21 EMA > 9 EMA*' if ampel=='🔴' else '*9 EMA > 21 EMA, aber nicht beide steigend*'}</div>",
         unsafe_allow_html=True,
     )
 

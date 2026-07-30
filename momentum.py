@@ -14,6 +14,7 @@ st.set_page_config(layout="wide")
 # ------------------------------------------------------------
 # 1) QQQ-Trend-Ampel
 # ------------------------------------------------------------
+@st.cache_data(ttl=600)   # QQQ-Ampel 10 min app-weit gecacht (über alle User geteilt)
 def get_ampel():
     try:
         qqq = yf.download("QQQ", period="3mo", interval="1d")
@@ -242,7 +243,15 @@ def _scrape_earningswhispers(tic: str, max_attempts: int = 10):
     return "", "N/A", "N/A", "N/A", "N/A"
 
 
-def get_earnings_data(tic: str):
+class _EarningsUnavailable(Exception):
+    """Fehlgeschlagener Earnings-Scrape → Ergebnis NICHT cachen, aber anzeigen."""
+    def __init__(self, result):
+        super().__init__("earnings scrape failed")
+        self.result = result
+
+
+@st.cache_data(ttl=3600)   # Earnings 1h app-weit gecacht (über alle User geteilt)
+def _fetch_earnings_data(tic: str):
     dt_text, eg, es, rg, rs = _scrape_earningswhispers(tic)
 
     date_norm = _normalize_epsdate(dt_text)
@@ -261,7 +270,7 @@ def get_earnings_data(tic: str):
     # Short Ratio aus dem (gecachten) Finviz-Abruf — kein Yahoo-Rate-Limit
     sr = scrape_finviz(tic).get("short_ratio", "N/A")
 
-    return {
+    result = {
         "Datum":             date_norm,
         "Uhrzeit":           session_str,
         "Earnings Growth":   pct(eg),
@@ -270,6 +279,25 @@ def get_earnings_data(tic: str):
         "Revenue Surprise":  num(rs),
         "Short Ratio":       sr,
     }
+
+    # Totalausfall des EarningsWhispers-Scrapes (alle vier Kennzahlen N/A)
+    # → Exception werfen. Streamlit cached bei einer Exception nichts, d.h. der
+    # nächste Abruf versucht es frisch, statt 1h lang N/A auszuliefern.
+    if all(result[k] == "N/A" for k in
+           ("Earnings Growth", "Earnings Surprise", "Revenue Growth", "Revenue Surprise")):
+        raise _EarningsUnavailable(result)
+
+    return result
+
+
+def get_earnings_data(tic: str):
+    """Cached-Wrapper: erfolgreiche Abrufe kommen aus dem geteilten Cache,
+    fehlgeschlagene werden (ungecacht) durchgereicht, damit sie beim nächsten
+    Aufruf erneut versucht werden."""
+    try:
+        return _fetch_earnings_data(tic)
+    except _EarningsUnavailable as e:
+        return e.result
 
 
 def render_earnings_card(ew: dict):

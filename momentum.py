@@ -96,15 +96,16 @@ with c_lamp:
 # ------------------------------------------------------------
 # 4) Hilfsfunktionen (identisch mit Original)
 # ------------------------------------------------------------
-# ------------------------------------------------------------
 # 5) Finviz – News + Short Ratio
 # ------------------------------------------------------------
-@st.cache_data(ttl=3600)
 def scrape_finviz(tic: str):
-    """Holt die Finviz-Quote-Seite EINMAL (1h app-weit gecacht) und liefert News
-    + Kennzahlen. Finviz wird so max. 1x pro Ticker/Stunde gescraped (kein 429),
-    und die Short Ratio kommt aus derselben Seite — ganz ohne yfinance/Yahoo
-    (dessen .info-Endpoint von Render-IPs rate-limited wird)."""
+    """Holt die Finviz-Quote-Seite und liefert News + Kennzahlen.
+
+    BEWUSST NICHT gecacht: News sollen bei jedem Abruf frisch sein (sonst fehlen
+    im Tagesverlauf neue Meldungen). Die Short Ratio kommt aus derselben Seite –
+    sie wird trotzdem nicht ungebremst geladen, weil ihr einziger Aufrufer
+    (get_earnings_data) 1h gecacht ist und Finviz daher nur bei einem
+    Earnings-Cache-Miss trifft."""
     base = "https://finviz.com"
     url  = f"{base}/quote.ashx?t={tic}&p=d"
     try:

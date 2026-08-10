@@ -3,11 +3,9 @@
 
 import streamlit as st
 import streamlit.components.v1 as components
-import pandas as pd
 import yfinance as yf
-import re, datetime, time, requests, json
+import datetime, requests, json
 from bs4 import BeautifulSoup
-from playwright.sync_api import sync_playwright
 
 st.set_page_config(layout="wide")
 
@@ -98,57 +96,8 @@ with c_lamp:
 # ------------------------------------------------------------
 # 4) Hilfsfunktionen (identisch mit Original)
 # ------------------------------------------------------------
-def _normalize_epsdate(raw: str) -> str:
-    if not raw or not raw.strip():
-        return "N/A"
-    raw = raw.strip()
-    m = re.search(r"[A-Za-z]+,\s+([A-Za-z]+\s+\d{1,2},\s+\d{4})", raw)
-    if not m:
-        return raw
-    try:
-        dt = datetime.datetime.strptime(m.group(1), "%B %d, %Y")
-        return dt.strftime("%d.%m.%Y")
-    except Exception:
-        return raw
-
-def _extract_session(raw: str) -> str:
-    """Konkrete Uhrzeit (inkl. ET) bzw. AMC/BMO aus dem EarningsWhispers-Datumstext.
-
-    Beispiel-Rohtext: 'Thursday, April 30, 2026 at 4:30 PM ET'
-    """
-    if not raw:
-        return "N/A"
-    m = re.search(r"(\d{1,2}:\d{2}\s*[AP]M(?:\s*ET)?)", raw, re.IGNORECASE)
-    if m:
-        return re.sub(r"\s+", " ", m.group(1)).strip()
-    if "After" in raw:
-        return "AMC (After Market Close)"
-    if "Before" in raw:
-        return "BMO (Before Market Open)"
-    return "N/A"
-
-def _fallback_yf_date(tic: str) -> str:
-    try:
-        yft = yf.Ticker(tic)
-        info = yft.info or {}
-        for key in ("nextEarningsDate", "earningsDate"):
-            if key in info and info[key]:
-                return pd.to_datetime(info[key]).strftime("%d.%m.%Y")
-        cal = yft.calendar
-        if isinstance(cal, pd.DataFrame) and not cal.empty:
-            if "Earnings Date" in cal.index:
-                val = cal.loc["Earnings Date"][0]
-            else:
-                val = next((v for v in cal.values.flatten()
-                            if isinstance(v, (pd.Timestamp, datetime.datetime, datetime.date))), None)
-            if val is not None:
-                return pd.to_datetime(val).strftime("%d.%m.%Y")
-    except Exception:
-        pass
-    return "N/A"
-
 # ------------------------------------------------------------
-# 5) EarningsWhispers – identische Selektoren wie Original
+# 5) Finviz – News + Short Ratio
 # ------------------------------------------------------------
 @st.cache_data(ttl=3600)
 def scrape_finviz(tic: str):
@@ -188,104 +137,76 @@ def scrape_finviz(tic: str):
     return {"news": news, "short_ratio": short_ratio}
 
 
-def _scrape_earningswhispers(tic: str, max_attempts: int = 10):
-    """Scrapt EarningsWhispers mit Retry.
-
-    EarningsWhispers liefert sporadisch HTTP 503 ('The service is unavailable.')
-    an Scraper aus. Ein einzelner Versuch scheitert deshalb häufig — wir
-    versuchen es mehrfach. Ein 503 lädt sofort (winziger Body), wird also schnell
-    erkannt und übersprungen, ohne auf #epsdate-Timeout zu warten.
-    """
-    url = f"https://www.earningswhispers.com/epsdetails/{tic}"
-    with sync_playwright() as p:
-        br = p.chromium.launch(headless=True)
-        try:
-            for attempt in range(max_attempts):
-                pg = br.new_page()
-                try:
-                    pg.goto(url, wait_until="domcontentloaded", timeout=60000)
-
-                    # 503-Sperrseite schnell erkennen → sofort neuer Versuch
-                    if "service is unavailable" in pg.inner_text("body").lower():
-                        time.sleep(1.0)
-                        continue
-
-                    try:
-                        pg.locator("text=Accept").click(timeout=2000)
-                    except Exception:
-                        pass
-
-                    # warten bis #epsdate echten Inhalt hat (JS-gerendert)
-                    pg.wait_for_function(
-                        """() => {
-                            const n = document.querySelector('#epsdate');
-                            return n && n.textContent.trim().length > 0;
-                        }""",
-                        timeout=8000,
-                    )
-
-                    dt_text = pg.inner_text("#epsdate")
-                    for sel in ("#earnings .growth", "#earnings .surprise",
-                                "#revenue .growth", "#revenue .surprise"):
-                        pg.wait_for_selector(sel, timeout=8000)
-                    eg = pg.inner_text("#earnings .growth")
-                    es = pg.inner_text("#earnings .surprise")
-                    rg = pg.inner_text("#revenue .growth")
-                    rs = pg.inner_text("#revenue .surprise")
-                    return dt_text, eg, es, rg, rs
-                except Exception:
-                    # noch nicht gerendert o.ä. → nächster Versuch
-                    time.sleep(1.0)
-                finally:
-                    pg.close()
-        finally:
-            br.close()
-    return "", "N/A", "N/A", "N/A", "N/A"
-
-
 class _EarningsUnavailable(Exception):
-    """Fehlgeschlagener Earnings-Scrape → Ergebnis NICHT cachen, aber anzeigen."""
+    """Fehlgeschlagener Earnings-Abruf → Ergebnis NICHT cachen, aber anzeigen."""
     def __init__(self, result):
-        super().__init__("earnings scrape failed")
+        super().__init__("earnings fetch failed")
         self.result = result
+
+
+def _fmt_pct(v):
+    """Ratio (0.2632) → '+26.32%'. Kein Zahlwert → 'N/A'."""
+    if isinstance(v, (int, float)):
+        return f"{v * 100:+.2f}%"
+    return "N/A"
 
 
 @st.cache_data(ttl=3600)   # Earnings 1h app-weit gecacht (über alle User geteilt)
 def _fetch_earnings_data(tic: str):
-    dt_text, eg, es, rg, rs = _scrape_earningswhispers(tic)
+    """Holt die Earnings-Kennzahlen direkt aus dem JSON-Endpunkt, den die
+    EarningsWhispers-Seite selbst nutzt (/api/epsdetails/<Ticker>). Das ersetzt
+    das frühere Playwright-Rendering: kein Headless-Chromium, kein JS-Warten,
+    kein 503-Retry — nur ein schlanker HTTP-GET mit sauberem JSON.
 
-    date_norm = _normalize_epsdate(dt_text)
-    if date_norm == "N/A":
-        date_norm = _fallback_yf_date(tic)
-
-    session_str = _extract_session(dt_text)
-
-    def clean(t):
-        v = re.sub(r"[^\d\.-]", "", t or "")
-        return v if v not in ("", ".", "-") else None
-
-    pct = lambda t: f"{clean(t)}%" if clean(t) else "N/A"
-    num = lambda t: clean(t) or "N/A"
-
-    # Short Ratio aus dem (gecachten) Finviz-Abruf — kein Yahoo-Rate-Limit
+    Short Ratio kommt weiter aus dem (gecachten) Finviz-Abruf.
+    """
     sr = scrape_finviz(tic).get("short_ratio", "N/A")
 
-    result = {
-        "Datum":             date_norm,
-        "Uhrzeit":           session_str,
-        "Earnings Growth":   pct(eg),
-        "Earnings Surprise": num(es),
-        "Revenue Growth":    pct(rg),
-        "Revenue Surprise":  num(rs),
-        "Short Ratio":       sr,
+    url = f"https://www.earningswhispers.com/api/epsdetails/{tic}"
+    headers = {
+        "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/120.0 Safari/537.36"),
+        "Referer": f"https://www.earningswhispers.com/epsdetails/{tic}",
+        "X-Requested-With": "XMLHttpRequest",
     }
 
-    # Totalausfall des EarningsWhispers-Scrapes (alle vier Kennzahlen N/A)
-    # → Exception werfen. Streamlit cached bei einer Exception nichts, d.h. der
-    # nächste Abruf versucht es frisch, statt 1h lang N/A auszuliefern.
-    if all(result[k] == "N/A" for k in
-           ("Earnings Growth", "Earnings Surprise", "Revenue Growth", "Revenue Surprise")):
+    result = {
+        "Datum": "N/A", "Uhrzeit": "N/A",
+        "Earnings Growth": "N/A", "Earnings Surprise": "N/A",
+        "Revenue Growth": "N/A", "Revenue Surprise": "N/A",
+        "Short Ratio": sr,
+    }
+
+    try:
+        r = requests.get(url, headers=headers, timeout=15)
+        # 204/leer = Ticker unbekannt oder (noch) keine Earnings-Daten
+        d = r.json() if (r.status_code == 200 and r.text.strip()) else None
+    except Exception:
+        d = None
+
+    # Kein Datensatz → nicht cachen, damit der nächste Abruf frisch versucht.
+    if not isinstance(d, dict) or not d.get("epsDate"):
         raise _EarningsUnavailable(result)
+
+    try:
+        dt = datetime.datetime.fromisoformat(d["epsDate"])
+        result["Datum"] = dt.strftime("%d.%m.%Y")
+        t = dt.time()
+        if t == datetime.time(0, 0):
+            result["Uhrzeit"] = "N/A"
+        else:
+            session = ("AMC" if t >= datetime.time(16, 0)
+                       else "BMO" if t <= datetime.time(9, 30)
+                       else "During Market")
+            result["Uhrzeit"] = f"{dt.strftime('%H:%M')} ET ({session})"
+    except Exception:
+        pass
+
+    result["Earnings Growth"]   = _fmt_pct(d.get("earningsGrowth"))
+    result["Earnings Surprise"] = _fmt_pct(d.get("earningsSurprise"))
+    result["Revenue Growth"]    = _fmt_pct(d.get("revenueGrowth"))
+    result["Revenue Surprise"]  = _fmt_pct(d.get("revenueSurprise"))
 
     return result
 

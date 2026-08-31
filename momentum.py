@@ -170,7 +170,7 @@ def scrape_finviz(tic: str):
 class _EarningsUnavailable(Exception):
     """Fehlgeschlagener Earnings-Abruf → Ergebnis NICHT cachen, aber anzeigen.
 
-    reason: 'unknown'     = Ticker bei EarningsWhispers nicht vorhanden
+    reason: 'unknown'     = Ticker von EarningsWhispers nicht abgedeckt
             'unavailable' = temporaer nicht abrufbar"""
     def __init__(self, result, reason="unavailable"):
         super().__init__(f"earnings fetch failed ({reason})")
@@ -219,7 +219,8 @@ def _fetch_earnings_data(tic: str):
     except Exception:
         status, d = None, None
 
-    # 204 = Ticker bei EarningsWhispers schlicht nicht vorhanden (Tippfehler o.ae.)
+    # 204 = Ticker von EarningsWhispers nicht abgedeckt (kein Tippfehler-Indiz:
+    # z.B. SUJA existiert bei Finviz, wird von EW aber nicht gefuehrt)
     if status == 204:
         raise _EarningsUnavailable(result, "unknown")
 
@@ -358,8 +359,10 @@ if submitted and ticker:
             ew, ew_status = get_earnings_data(tic)
         render_earnings_card(ew)
         if ew_status == "unknown":
-            st.info(f"Zu „{tic}“ liegen bei EarningsWhispers keine Daten vor – "
-                    "bitte die Schreibweise des Tickers prüfen.")
+            st.info(f"EarningsWhispers führt „{tic}“ nicht – das kommt bei kleineren "
+                    "oder erst kürzlich gelisteten Titeln vor und ist kein Fehler. "
+                    "News und Short Ratio stammen von Finviz; Earnings-Termine "
+                    "lassen sich über die SeekingAlpha-/Zacks-Buttons oben prüfen.")
         elif ew_status == "unavailable":
             st.warning("Earnings-Daten gerade nicht abrufbar – bitte in ein paar "
                        "Minuten erneut versuchen.")

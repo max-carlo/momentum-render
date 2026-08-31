@@ -94,25 +94,51 @@ with c_lamp:
     )
 
 # ------------------------------------------------------------
-# 4) Hilfsfunktionen (identisch mit Original)
-# ------------------------------------------------------------
 # 5) Finviz – News + Short Ratio
 # ------------------------------------------------------------
-def scrape_finviz(tic: str):
-    """Holt die Finviz-Quote-Seite und liefert News + Kennzahlen.
+_FINVIZ_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://finviz.com/",
+}
 
-    BEWUSST NICHT gecacht: News sollen bei jedem Abruf frisch sein (sonst fehlen
-    im Tagesverlauf neue Meldungen). Die Short Ratio kommt aus derselben Seite –
-    sie wird trotzdem nicht ungebremst geladen, weil ihr einziger Aufrufer
-    (get_earnings_data) 1h gecacht ist und Finviz daher nur bei einem
-    Earnings-Cache-Miss trifft."""
+
+@st.cache_resource
+def _finviz_lkg():
+    """Zuletzt erfolgreich geladener Stand je Ticker (prozessweit, ohne Ablauf).
+
+    Rückfallebene, wenn Finviz mit 429 blockt: dann lieber leicht ältere News
+    zeigen als eine rote Fehlermeldung."""
+    return {}
+
+
+@st.cache_data(ttl=300)   # 5 min – News bleiben frisch, Finviz wird nicht geflutet
+def scrape_finviz(tic: str):
+    """Holt die Finviz-Seite und liefert News + Kennzahlen.
+
+    Drei Maßnahmen gegen das 429-Rate-Limit (Render hat eine feste Ausgangs-IP):
+    1. Direkt /stock statt /quote.ashx – letzteres leitet zweimal um und kostet
+       damit drei Requests pro Abruf statt einem.
+    2. Vollständige Browser-Header statt nacktem 'Mozilla/5.0'.
+    3. 5-Minuten-Cache: News bleiben aktuell genug, wiederholte Aufrufe
+       desselben Tickers treffen Finviz aber nicht erneut.
+
+    Schlägt der Abruf trotzdem fehl, wird der letzte erfolgreiche Stand
+    ausgeliefert (als 'stale' markiert) statt einer Fehlermeldung."""
     base = "https://finviz.com"
-    url  = f"{base}/quote.ashx?t={tic}&p=d"
+    url  = f"{base}/stock?t={tic}&p=d"
+    lkg  = _finviz_lkg()
     try:
-        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
+        r = requests.get(url, headers=_FINVIZ_HEADERS, timeout=15)
         r.raise_for_status()
     except Exception as e:
-        return {"news": [f"Finviz-Fehler: {e}"], "short_ratio": "N/A"}
+        stale = lkg.get(tic)
+        if stale:
+            return {**stale, "stale": True}
+        return {"news": [f"Finviz gerade nicht erreichbar ({e})"],
+                "short_ratio": "N/A", "stale": False}
 
     soup = BeautifulSoup(r.text, "html.parser")
 
@@ -135,14 +161,21 @@ def scrape_finviz(tic: str):
         snap[cells[i].get_text(strip=True)] = cells[i + 1].get_text(strip=True)
     short_ratio = snap.get("Short Ratio") or "N/A"
 
-    return {"news": news, "short_ratio": short_ratio}
+    result = {"news": news, "short_ratio": short_ratio, "stale": False}
+    if news:                      # nur brauchbare Antworten als Rückfall merken
+        lkg[tic] = result
+    return result
 
 
 class _EarningsUnavailable(Exception):
-    """Fehlgeschlagener Earnings-Abruf → Ergebnis NICHT cachen, aber anzeigen."""
-    def __init__(self, result):
-        super().__init__("earnings fetch failed")
+    """Fehlgeschlagener Earnings-Abruf → Ergebnis NICHT cachen, aber anzeigen.
+
+    reason: 'unknown'     = Ticker bei EarningsWhispers nicht vorhanden
+            'unavailable' = temporaer nicht abrufbar"""
+    def __init__(self, result, reason="unavailable"):
+        super().__init__(f"earnings fetch failed ({reason})")
         self.result = result
+        self.reason = reason
 
 
 def _fmt_pct(v):
@@ -181,14 +214,18 @@ def _fetch_earnings_data(tic: str):
 
     try:
         r = requests.get(url, headers=headers, timeout=15)
-        # 204/leer = Ticker unbekannt oder (noch) keine Earnings-Daten
-        d = r.json() if (r.status_code == 200 and r.text.strip()) else None
+        status = r.status_code
+        d = r.json() if (status == 200 and r.text.strip()) else None
     except Exception:
-        d = None
+        status, d = None, None
+
+    # 204 = Ticker bei EarningsWhispers schlicht nicht vorhanden (Tippfehler o.ae.)
+    if status == 204:
+        raise _EarningsUnavailable(result, "unknown")
 
     # Kein Datensatz → nicht cachen, damit der nächste Abruf frisch versucht.
     if not isinstance(d, dict) or not d.get("epsDate"):
-        raise _EarningsUnavailable(result)
+        raise _EarningsUnavailable(result, "unavailable")
 
     try:
         dt = datetime.datetime.fromisoformat(d["epsDate"])
@@ -215,11 +252,13 @@ def _fetch_earnings_data(tic: str):
 def get_earnings_data(tic: str):
     """Cached-Wrapper: erfolgreiche Abrufe kommen aus dem geteilten Cache,
     fehlgeschlagene werden (ungecacht) durchgereicht, damit sie beim nächsten
-    Aufruf erneut versucht werden."""
+    Aufruf erneut versucht werden.
+
+    Rückgabe: (werte, grund) mit grund in {'ok', 'unknown', 'unavailable'}."""
     try:
-        return _fetch_earnings_data(tic)
+        return _fetch_earnings_data(tic), "ok"
     except _EarningsUnavailable as e:
-        return e.result
+        return e.result, e.reason
 
 
 def render_earnings_card(ew: dict):
@@ -295,7 +334,11 @@ if submitted and ticker:
     with c1:
         st.markdown("<div class='panel-title'>📰 News</div>", unsafe_allow_html=True)
         with st.spinner("Lade News..."):
-            news = scrape_finviz(tic)["news"]
+            fv = scrape_finviz(tic)
+        news = fv["news"]
+        if fv.get("stale"):
+            st.caption("⚠️ Finviz blockt gerade – gezeigt wird der zuletzt "
+                       "erfolgreich geladene Stand.")
         html = "<div class='news-card'><div class='news-scroll'>"
         for itm in news:
             if isinstance(itm, str):
@@ -312,5 +355,11 @@ if submitted and ticker:
     with c2:
         st.markdown("<div class='panel-title'>📊 Earnings</div>", unsafe_allow_html=True)
         with st.spinner("Lade EarningsWhispers-Daten..."):
-            ew = get_earnings_data(tic)
+            ew, ew_status = get_earnings_data(tic)
         render_earnings_card(ew)
+        if ew_status == "unknown":
+            st.info(f"Zu „{tic}“ liegen bei EarningsWhispers keine Daten vor – "
+                    "bitte die Schreibweise des Tickers prüfen.")
+        elif ew_status == "unavailable":
+            st.warning("Earnings-Daten gerade nicht abrufbar – bitte in ein paar "
+                       "Minuten erneut versuchen.")

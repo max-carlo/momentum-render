@@ -185,24 +185,47 @@ def _fmt_pct(v):
     return "N/A"
 
 
+def _ew_gauges(soup):
+    """Liest die Kennzahl-Gauges der epsdetails-Seite: {Label: Ratio}.
+
+    Surprise steht als Rohwert in data-surprise (Ratio), Growth nur als
+    Gauge-Text ("21.7 %"). Fehlt ein Wert (Gauge zeigt "—"), bleibt er weg."""
+    out = {}
+    for g in soup.select(".eps-metric .gauge"):
+        lbl = g.select_one(".gauge-lbl")
+        if not lbl:
+            continue
+        key = lbl.get_text(strip=True)
+        surp = g.select_one(".eps-surp[data-surprise]")
+        txt = g.select_one(".gauge-center")
+        try:
+            if surp is not None:
+                out[key] = float(surp["data-surprise"])
+            elif txt is not None:
+                out[key] = float(txt.get_text(strip=True)
+                                 .replace("%", "").replace(",", "").strip()) / 100
+        except ValueError:
+            pass
+    return out
+
+
 @st.cache_data(ttl=3600)   # Earnings 1h app-weit gecacht (über alle User geteilt)
 def _fetch_earnings_data(tic: str):
-    """Holt die Earnings-Kennzahlen direkt aus dem JSON-Endpunkt, den die
-    EarningsWhispers-Seite selbst nutzt (/api/epsdetails/<Ticker>). Das ersetzt
-    das frühere Playwright-Rendering: kein Headless-Chromium, kein JS-Warten,
-    kein 503-Retry — nur ein schlanker HTTP-GET mit sauberem JSON.
+    """Liest die Earnings-Kennzahlen aus der EarningsWhispers-Seite
+    /epsdetails/<Ticker>. Seit dem Relaunch (Okt. 2026) gibt es den früheren
+    JSON-Endpunkt /api/epsdetails nicht mehr (404); die Werte stehen jetzt
+    serverseitig gerendert im HTML (.eps-date, .eps-metric-Gauges).
 
     Short Ratio kommt weiter aus dem (gecachten) Finviz-Abruf.
     """
     sr = scrape_finviz(tic).get("short_ratio", "N/A")
 
-    url = f"https://www.earningswhispers.com/api/epsdetails/{tic}"
+    url = f"https://www.earningswhispers.com/epsdetails/{tic}"
     headers = {
         "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                        "AppleWebKit/537.36 (KHTML, like Gecko) "
                        "Chrome/120.0 Safari/537.36"),
-        "Referer": f"https://www.earningswhispers.com/epsdetails/{tic}",
-        "X-Requested-With": "XMLHttpRequest",
+        "Accept": "text/html,application/xhtml+xml",
     }
 
     result = {
@@ -215,37 +238,42 @@ def _fetch_earnings_data(tic: str):
     try:
         r = requests.get(url, headers=headers, timeout=15)
         status = r.status_code
-        d = r.json() if (status == 200 and r.text.strip()) else None
+        soup = BeautifulSoup(r.text, "html.parser") if status == 200 else None
     except Exception:
-        status, d = None, None
+        status, soup = None, None
 
-    # 204 = Ticker von EarningsWhispers nicht abgedeckt (kein Tippfehler-Indiz:
+    # 404 = Ticker von EarningsWhispers nicht abgedeckt (kein Tippfehler-Indiz:
     # z.B. SUJA existiert bei Finviz, wird von EW aber nicht gefuehrt)
-    if status == 204:
+    if status == 404:
         raise _EarningsUnavailable(result, "unknown")
 
     # Kein Datensatz → nicht cachen, damit der nächste Abruf frisch versucht.
-    if not isinstance(d, dict) or not d.get("epsDate"):
+    date_el = soup.select_one(".eps-date") if soup else None
+    if date_el is None:
         raise _EarningsUnavailable(result, "unavailable")
 
+    # z.B. "Thursday, July 30, 2026 · 4:30 PM ET" (Uhrzeit kann fehlen)
+    parts = [p.strip() for p in date_el.get_text(" ", strip=True).split("·")]
     try:
-        dt = datetime.datetime.fromisoformat(d["epsDate"])
+        dt = datetime.datetime.strptime(parts[0], "%A, %B %d, %Y")
         result["Datum"] = dt.strftime("%d.%m.%Y")
-        t = dt.time()
-        if t == datetime.time(0, 0):
-            result["Uhrzeit"] = "N/A"
-        else:
+    except ValueError:
+        pass
+    if len(parts) > 1:
+        try:
+            t = datetime.datetime.strptime(
+                parts[1].replace("ET", "").strip(), "%I:%M %p").time()
             session = ("AMC" if t >= datetime.time(16, 0)
                        else "BMO" if t <= datetime.time(9, 30)
                        else "During Market")
-            result["Uhrzeit"] = f"{dt.strftime('%H:%M')} ET ({session})"
-    except Exception:
-        pass
+            result["Uhrzeit"] = f"{t.strftime('%H:%M')} ET ({session})"
+        except ValueError:
+            pass
 
-    result["Earnings Growth"]   = _fmt_pct(d.get("earningsGrowth"))
-    result["Earnings Surprise"] = _fmt_pct(d.get("earningsSurprise"))
-    result["Revenue Growth"]    = _fmt_pct(d.get("revenueGrowth"))
-    result["Revenue Surprise"]  = _fmt_pct(d.get("revenueSurprise"))
+    g = _ew_gauges(soup)
+    for key in ("Earnings Growth", "Earnings Surprise",
+                "Revenue Growth", "Revenue Surprise"):
+        result[key] = _fmt_pct(g.get(key))
 
     return result
 
